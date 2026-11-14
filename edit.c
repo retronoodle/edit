@@ -19,14 +19,19 @@
     #include <dirent.h>
 #endif
 
-#define MAX_LINES 1000
-#define MAX_LINE_LENGTH 256
 #define SCREEN_WIDTH 80
 #define SCREEN_HEIGHT 25
 
 typedef struct {
-    char lines[MAX_LINES][MAX_LINE_LENGTH];
+    char *text;     /* always NUL-terminated */
+    int len;        /* strlen(text), kept in sync */
+    int cap;        /* bytes allocated for text, including the NUL */
+} Line;
+
+typedef struct {
+    Line *lines;
     int line_count;
+    int line_cap;   /* allocated slots in lines[] */
     int cursor_x, cursor_y;
     int scroll_x, scroll_y;
     int insert_mode;
@@ -39,6 +44,82 @@ typedef struct {
 } Editor;
 
 Editor editor;
+
+/* ---- Growable line storage: no fixed limit on lines or line length ---- */
+
+static void die_oom(void) {
+    fprintf(stderr, "edit: out of memory\n");
+    exit(1);
+}
+
+/* Makes ln->text hold at least `need` bytes (including the NUL). */
+static void line_reserve(Line *ln, int need) {
+    if (need <= ln->cap) return;
+    int cap = ln->cap ? ln->cap : 16;
+    while (cap < need) cap *= 2;
+    char *p = realloc(ln->text, cap);
+    if (!p) die_oom();
+    ln->text = p;
+    ln->cap = cap;
+}
+
+static void line_init(Line *ln) {
+    ln->text = NULL;
+    ln->len = 0;
+    ln->cap = 0;
+    line_reserve(ln, 16);
+    ln->text[0] = '\0';
+}
+
+/* Makes editor.lines hold at least `need` slots. */
+static void lines_reserve(int need) {
+    if (need <= editor.line_cap) return;
+    int cap = editor.line_cap ? editor.line_cap : 64;
+    while (cap < need) cap *= 2;
+    Line *p = realloc(editor.lines, cap * sizeof(Line));
+    if (!p) die_oom();
+    editor.lines = p;
+    editor.line_cap = cap;
+}
+
+/* Inserts a new line at idx holding n bytes copied from s. */
+static void insert_line_at(int idx, const char *s, int n) {
+    lines_reserve(editor.line_count + 1);
+    memmove(&editor.lines[idx + 1], &editor.lines[idx],
+            (editor.line_count - idx) * sizeof(Line));
+    editor.line_count++;
+    line_init(&editor.lines[idx]);
+    line_reserve(&editor.lines[idx], n + 1);
+    memcpy(editor.lines[idx].text, s, n);
+    editor.lines[idx].len = n;
+    editor.lines[idx].text[n] = '\0';
+}
+
+static void delete_line_at(int idx) {
+    free(editor.lines[idx].text);
+    memmove(&editor.lines[idx], &editor.lines[idx + 1],
+            (editor.line_count - idx - 1) * sizeof(Line));
+    editor.line_count--;
+}
+
+static void free_all_lines(void) {
+    for (int i = 0; i < editor.line_count; i++) free(editor.lines[i].text);
+    free(editor.lines);
+    editor.lines = NULL;
+    editor.line_count = 0;
+    editor.line_cap = 0;
+}
+
+/* Clears the document to one empty line and puts the cursor at the top. */
+static void reset_document(void) {
+    free_all_lines();
+    insert_line_at(0, "", 0);
+    editor.cursor_x = 0;
+    editor.cursor_y = 0;
+    editor.scroll_x = 0;
+    editor.scroll_y = 0;
+    editor.modified = 0;
+}
 
 /* Frame buffer: all screen output is built here and written in one go,
    so the terminal never shows a half-drawn frame (fixes flicker). */
@@ -367,22 +448,16 @@ int read_key() {
 #endif
 
 void init_editor() {
-    editor.line_count = 1;
-    editor.cursor_x = 0;
-    editor.cursor_y = 0;
-    editor.scroll_x = 0;
-    editor.scroll_y = 0;
+    editor.lines = NULL;
+    editor.line_count = 0;
+    editor.line_cap = 0;
     editor.insert_mode = 1;
-    editor.modified = 0;
     editor.menu_active = 0;
     editor.selected_menu = 0;
     editor.dropdown_open = 0;
     editor.selected_item = 0;
     strcpy(editor.filename, "untitled.txt");
-
-    for (int i = 0; i < MAX_LINES; i++) {
-        editor.lines[i][0] = '\0';
-    }
+    reset_document();
 }
 
 void draw_status_line() {
@@ -472,8 +547,8 @@ void draw_editor_area() {
         int file_line = screen_row - 1 + editor.scroll_y;
 
         if (file_line < editor.line_count) {
-            char *line = editor.lines[file_line];
-            int line_len = (int)strlen(line);
+            char *line = editor.lines[file_line].text;
+            int line_len = editor.lines[file_line].len;
 
             for (int col = 0; col < SCREEN_WIDTH; col++) {
                 int file_col = col + editor.scroll_x;
@@ -525,7 +600,7 @@ void move_cursor(int dx, int dy) {
         if (editor.cursor_y < 0) editor.cursor_y = 0;
         if (editor.cursor_y >= editor.line_count) editor.cursor_y = editor.line_count - 1;
 
-        int line_len = strlen(editor.lines[editor.cursor_y]);
+        int line_len = editor.lines[editor.cursor_y].len;
         if (editor.cursor_x > line_len) {
             editor.cursor_x = line_len;
         }
@@ -535,7 +610,7 @@ void move_cursor(int dx, int dy) {
         editor.cursor_x += dx;
         if (editor.cursor_x < 0) editor.cursor_x = 0;
 
-        int line_len = strlen(editor.lines[editor.cursor_y]);
+        int line_len = editor.lines[editor.cursor_y].len;
         if (editor.cursor_x > line_len) {
             editor.cursor_x = line_len;
         }
@@ -545,32 +620,28 @@ void move_cursor(int dx, int dy) {
 }
 
 void insert_char(char ch) {
-    char *line = editor.lines[editor.cursor_y];
-    int line_len = strlen(line);
+    Line *ln = &editor.lines[editor.cursor_y];
+    line_reserve(ln, ln->len + 2);
 
-    if (line_len < MAX_LINE_LENGTH - 1) {
-        if (editor.insert_mode) {
-            memmove(&line[editor.cursor_x + 1], &line[editor.cursor_x],
-                    line_len - editor.cursor_x + 1);
-        }
-
-        line[editor.cursor_x] = ch;
-        if (!editor.insert_mode && editor.cursor_x == line_len) {
-            line[editor.cursor_x + 1] = '\0';
-        }
-
-        editor.cursor_x++;
-        editor.modified = 1;
+    /* Insert mode shifts the tail right; overwrite mode replaces, except at end of line */
+    if (editor.insert_mode || editor.cursor_x >= ln->len) {
+        memmove(&ln->text[editor.cursor_x + 1], &ln->text[editor.cursor_x],
+                ln->len - editor.cursor_x + 1);
+        ln->len++;
     }
+
+    ln->text[editor.cursor_x] = ch;
+    editor.cursor_x++;
+    editor.modified = 1;
 }
 
 void delete_char() {
-    char *line = editor.lines[editor.cursor_y];
-    int line_len = strlen(line);
+    Line *ln = &editor.lines[editor.cursor_y];
 
-    if (editor.cursor_x < line_len) {
-        memmove(&line[editor.cursor_x], &line[editor.cursor_x + 1],
-                line_len - editor.cursor_x);
+    if (editor.cursor_x < ln->len) {
+        memmove(&ln->text[editor.cursor_x], &ln->text[editor.cursor_x + 1],
+                ln->len - editor.cursor_x);
+        ln->len--;
         editor.modified = 1;
     }
 }
@@ -580,37 +651,38 @@ void backspace() {
         editor.cursor_x--;
         delete_char();
     } else if (editor.cursor_y > 0) {
-        int prev_line_len = strlen(editor.lines[editor.cursor_y - 1]);
-        if (prev_line_len + strlen(editor.lines[editor.cursor_y]) < MAX_LINE_LENGTH - 1) {
-            strcat(editor.lines[editor.cursor_y - 1], editor.lines[editor.cursor_y]);
+        /* Join this line onto the end of the previous one */
+        Line *prev = &editor.lines[editor.cursor_y - 1];
+        Line *cur = &editor.lines[editor.cursor_y];
+        int prev_len = prev->len;
 
-            for (int i = editor.cursor_y; i < editor.line_count - 1; i++) {
-                strcpy(editor.lines[i], editor.lines[i + 1]);
-            }
-            editor.line_count--;
+        line_reserve(prev, prev_len + cur->len + 1);
+        memcpy(&prev->text[prev_len], cur->text, cur->len + 1);
+        prev->len = prev_len + cur->len;
 
-            editor.cursor_y--;
-            editor.cursor_x = prev_line_len;
-            editor.modified = 1;
-        }
+        delete_line_at(editor.cursor_y);
+
+        editor.cursor_y--;
+        editor.cursor_x = prev_len;
+        editor.modified = 1;
     }
 }
 
 void insert_newline() {
-    if (editor.line_count < MAX_LINES - 1) {
-        for (int i = editor.line_count; i > editor.cursor_y; i--) {
-            strcpy(editor.lines[i], editor.lines[i - 1]);
-        }
+    Line *cur = &editor.lines[editor.cursor_y];
+    int tail_len = cur->len - editor.cursor_x;
 
-        char *current_line = editor.lines[editor.cursor_y];
-        strcpy(editor.lines[editor.cursor_y + 1], &current_line[editor.cursor_x]);
-        current_line[editor.cursor_x] = '\0';
+    /* Copies the tail into a new line. The tail pointer targets the text
+       buffer, which stays valid even if the lines array is reallocated. */
+    insert_line_at(editor.cursor_y + 1, cur->text + editor.cursor_x, tail_len);
 
-        editor.line_count++;
-        editor.cursor_y++;
-        editor.cursor_x = 0;
-        editor.modified = 1;
-    }
+    cur = &editor.lines[editor.cursor_y];   /* re-fetch: array may have moved */
+    cur->text[editor.cursor_x] = '\0';
+    cur->len = editor.cursor_x;
+
+    editor.cursor_y++;
+    editor.cursor_x = 0;
+    editor.modified = 1;
 }
 
 /* ---- Status messages and prompts (bottom row, SCREEN_HEIGHT-2) ---- */
@@ -680,7 +752,8 @@ static int write_file(const char *name) {
         return 0;
     }
     for (int i = 0; i < editor.line_count; i++) {
-        fprintf(file, "%s\n", editor.lines[i]);
+        fwrite(editor.lines[i].text, 1, editor.lines[i].len, file);
+        fputc('\n', file);
     }
     fclose(file);
     editor.modified = 0;
@@ -728,13 +801,7 @@ static int confirm_discard(void) {
 static int do_new(void) {
     if (!confirm_discard()) return 0;
     strcpy(editor.filename, "untitled.txt");
-    editor.line_count = 1;
-    editor.lines[0][0] = '\0';
-    editor.cursor_x = 0;
-    editor.cursor_y = 0;
-    editor.scroll_x = 0;
-    editor.scroll_y = 0;
-    editor.modified = 0;
+    reset_document();
     return 1;
 }
 
@@ -913,21 +980,32 @@ static int do_open(void) {
         return 0;
     }
 
-    editor.line_count = 0;
-    char buffer[MAX_LINE_LENGTH];
-    while (editor.line_count < MAX_LINES - 1 && fgets(buffer, sizeof(buffer), in)) {
-        int n = (int)strlen(buffer);
-        if (n > 0 && buffer[n - 1] == '\n') {
-            buffer[n - 1] = '\0';
+    /* Read in chunks; a line longer than the chunk spans several reads */
+    free_all_lines();
+    char chunk[4096];
+    int need_line = 1;
+    while (fgets(chunk, sizeof(chunk), in)) {
+        int n = (int)strlen(chunk);
+        int ends_line = (n > 0 && chunk[n - 1] == '\n');
+        if (ends_line) {
+            n--;
+            if (n > 0 && chunk[n - 1] == '\r') n--;   /* CRLF files */
         }
-        strcpy(editor.lines[editor.line_count], buffer);
-        editor.line_count++;
+        if (need_line) {
+            insert_line_at(editor.line_count, "", 0);
+            need_line = 0;
+        }
+        Line *ln = &editor.lines[editor.line_count - 1];
+        line_reserve(ln, ln->len + n + 1);
+        memcpy(ln->text + ln->len, chunk, n);
+        ln->len += n;
+        ln->text[ln->len] = '\0';
+        if (ends_line) need_line = 1;
     }
     fclose(in);
 
     if (editor.line_count == 0) {
-        editor.line_count = 1;
-        editor.lines[0][0] = '\0';
+        insert_line_at(0, "", 0);
     }
 
     strcpy(editor.filename, name);
@@ -1145,5 +1223,6 @@ int main(int argc, char *argv[]) {
     set_line_wrap(1);
 #endif
     set_cursor_visibility(1);
+    free_all_lines();
     return 0;
 }

@@ -17,7 +17,7 @@ This is a simple text editor written in C, similar to MS-DOS EDIT. It runs in th
 ### Core Structure
 
 The editor uses a single `Editor` struct (edit.c:19-27) that maintains:
-- Array of lines (up to MAX_LINES=1000, each up to MAX_LINE_LENGTH=256)
+- Growable array of `Line` structs (each holds a heap-allocated, NUL-terminated `text` plus `len`/`cap`); no fixed line or length limit
 - Cursor position (cursor_x, cursor_y)
 - Scroll offset (scroll_x, scroll_y)
 - Insert/overwrite mode flag
@@ -61,7 +61,8 @@ The main loop (edit.c:494-621) uses goto labels for major operations:
 
 ## Development Notes
 
-- The editor has hard limits: 1000 lines max, 256 chars per line
+- Line storage grows on demand (`line_reserve`, `lines_reserve`, `insert_line_at`, `delete_line_at`); `reset_document()` clears the buffer
+- The file browser still caps listings at MAX_DIR_ENTRIES=512
 - No undo/redo functionality
 - No clipboard/copy-paste support
 - Tab key inserts 4 spaces

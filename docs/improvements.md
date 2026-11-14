@@ -1,33 +1,61 @@
 # Future Improvements
 
-This document outlines potential improvements to make the editor more functional.
+What the editor needs to move from a DOS-style toy to something that feels current, in rough priority order.
 
-## High Priority (Core Functionality)
-1. **Clipboard support** - Copy/cut/paste is essential for any real editor
-2. **Undo/redo** - Critical for practical editing
-3. **Find/Replace** - The Search menu exists but has no implementation
-4. **File menu operations** - The File/Edit/Search/Options menu bar is displayed but not interactive
-5. **Line wrapping or horizontal scrolling** - Currently limited to visible width
-6. **Remove hard limits** - Dynamic line storage instead of MAX_LINES=1000
+## Priority Order (Core Functionality)
 
-## Medium Priority (Usability)
-7. **Mouse support** - For clicking to position cursor
-8. **Syntax highlighting** - At least basic keyword/comment coloring
-9. **Line numbers** - Optional display in left margin
-10. **Multiple file support** - Tabs or buffers for editing multiple files
-11. **Better file operations** - Recent files, file browser, save-as dialog
+### 1. ~~Remove hard limits~~ (done)
+- Line array and per-line buffers now grow on demand. `MAX_LINES` and `MAX_LINE_LENGTH` are removed.
+
+### 2. Undo/redo
+- Nothing can be undone today.
+- Start with an operation log (insert/delete char, insert/delete line) that records cursor position.
+
+### 3. Clipboard
+- Selection via Shift+arrows.
+- Cut/Copy/Paste on Ctrl+X/C/V. Internal clipboard first, system clipboard later.
+
+### 4. Search and replace
+- The Search menu is displayed but has no implementation.
+- Find (Ctrl+F), Find Next (F3), Replace (Ctrl+H), Go to Line.
+
+### 5. UTF-8 support
+- Currently ASCII only. Non-ASCII input is mangled and can corrupt a line.
+- Store text as UTF-8 and handle multi-byte cursor movement and display width.
+- Probably the single biggest step toward "not the stone age."
+
+### 6. Interactive menu bar
+- Only File has a working dropdown. Edit, Search and Options are displayed but do nothing.
+- File: New, Open, Save, Save As, Exit
+- Edit: Undo, Redo, Cut, Copy, Paste, Select All
+- Search: Find, Find Next, Replace, Go to Line
+- Options: tab width, word wrap, line numbers, line endings, color scheme
+
+### 7. Line wrapping or horizontal scrolling
+- Currently limited to the visible width.
+
+### 8. Resize-aware layout
+- Screen is fixed at 80x25. Read the real console size and adjust on resize.
+
+### 9. Auto-save and crash recovery
+- Write a periodic backup file so unsaved work survives a crash.
+
+## Usability
+
+- **Mouse support**: click to place the cursor, drag to select, scroll wheel.
+- **Line numbers**: optional display in the left margin.
+- **Multiple file support**: tabs or buffers for editing several files.
+- **Better file operations**: recent files, file browser, save-as dialog.
+- **Syntax highlighting**: at least basic keyword and comment coloring.
 
 ## Nice to Have (Polish)
-12. **Config file** - Save preferences (tab size, colors, keybindings)
-13. **Auto-indent** - Match indentation of previous line
-14. **Selection/highlighting** - Visual block selection
-15. **Word wrap mode** - Optional soft wrapping
-16. **UTF-8 support** - Currently ASCII only
 
-## Current Menu Bar Issue
+- **Config file**: save preferences (tab size, colors, keybindings). Tabs are hard-coded to 4 spaces today.
+- **Auto-indent**: match the indentation of the previous line.
+- **Selection highlighting**: visual block selection.
+- **Word wrap mode**: optional soft wrapping.
 
-The menu bar at the top (File Edit Search Options) is currently just static text. It should be made interactive to allow:
-- File: New, Open, Save, Save As, Exit
-- Edit: Cut, Copy, Paste, Undo, Redo
-- Search: Find, Replace, Go to Line
-- Options: Tab size, word wrap, line numbers, etc.
+## Current Constraints
+
+- Files are always saved with Unix line endings (`\n`).
+- No undo, clipboard or search exists yet.
