@@ -2,9 +2,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#include <ctype.h>
 
 #ifdef _WIN32
     #include <conio.h>
+    #include <direct.h>
     #include <windows.h>
     #ifndef ENABLE_VIRTUAL_TERMINAL_PROCESSING
         #define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004
@@ -13,6 +15,8 @@
     #include <termios.h>
     #include <unistd.h>
     #include <sys/ioctl.h>
+    #include <sys/stat.h>
+    #include <dirent.h>
 #endif
 
 #define MAX_LINES 1000
@@ -734,9 +738,168 @@ static int do_new(void) {
     return 1;
 }
 
+/* ---- File browser (used by Open) ---- */
+
+#define MAX_DIR_ENTRIES 512
+#define BROWSER_ROWS 20          /* list rows on screen rows 2..21 */
+
+typedef struct {
+    char name[256];
+    int is_dir;
+} DirEntry;
+
+static DirEntry dir_entries[MAX_DIR_ENTRIES];
+static int dir_count = 0;
+
+static void add_dir_entry(const char *name, int is_dir) {
+    snprintf(dir_entries[dir_count].name, sizeof(dir_entries[0].name), "%s", name);
+    dir_entries[dir_count].is_dir = is_dir;
+    dir_count++;
+}
+
+/* Folders first, then names, case-insensitive. Index 0 ("..") is excluded. */
+static int dir_entry_cmp(const void *a, const void *b) {
+    const DirEntry *x = a, *y = b;
+    if (x->is_dir != y->is_dir) return y->is_dir - x->is_dir;
+    const unsigned char *p = (const unsigned char *)x->name;
+    const unsigned char *q = (const unsigned char *)y->name;
+    while (*p && tolower(*p) == tolower(*q)) { p++; q++; }
+    return tolower(*p) - tolower(*q);
+}
+
+static void load_dir_entries(void) {
+    dir_count = 0;
+    add_dir_entry("..", 1);
+
+#ifdef _WIN32
+    WIN32_FIND_DATAA fd;
+    HANDLE h = FindFirstFileA("*", &fd);
+    if (h != INVALID_HANDLE_VALUE) {
+        do {
+            if (strcmp(fd.cFileName, ".") == 0 || strcmp(fd.cFileName, "..") == 0) continue;
+            if (dir_count >= MAX_DIR_ENTRIES) break;
+            add_dir_entry(fd.cFileName, (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0);
+        } while (FindNextFileA(h, &fd));
+        FindClose(h);
+    }
+#else
+    DIR *d = opendir(".");
+    if (d) {
+        struct dirent *de;
+        while ((de = readdir(d)) != NULL) {
+            if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0) continue;
+            if (dir_count >= MAX_DIR_ENTRIES) break;
+            struct stat st;
+            int is_dir = (stat(de->d_name, &st) == 0 && S_ISDIR(st.st_mode));
+            add_dir_entry(de->d_name, is_dir);
+        }
+        closedir(d);
+    }
+#endif
+
+    qsort(dir_entries + 1, dir_count - 1, sizeof(DirEntry), dir_entry_cmp);
+}
+
+static void current_dir(char *buf, size_t size) {
+#ifdef _WIN32
+    if (!_getcwd(buf, (int)size)) buf[0] = '\0';
+#else
+    if (!getcwd(buf, size)) buf[0] = '\0';
+#endif
+}
+
+static int change_dir(const char *path) {
+#ifdef _WIN32
+    return _chdir(path) == 0;
+#else
+    return chdir(path) == 0;
+#endif
+}
+
+static void draw_browser(int sel, int top) {
+    char cwd[512];
+    char line[512];   /* large enough for any path; fb_printf clips to 79 cols */
+    current_dir(cwd, sizeof(cwd));
+
+    fb_reset();
+    fb_puts("\x1b[?25l");
+
+    snprintf(line, sizeof(line), " Open: %s", cwd);
+    fb_gotoxy(0, 1);
+    fb_printf("\x1b[7m%-79.79s\x1b[0m", line);
+
+    for (int row = 0; row < BROWSER_ROWS; row++) {
+        int idx = top + row;
+        fb_gotoxy(0, 2 + row);
+        if (idx < dir_count) {
+            int hl = (idx == sel);
+            if (hl) fb_puts("\x1b[7m");
+            snprintf(line, sizeof(line), "  %s%s",
+                     dir_entries[idx].is_dir ? "[DIR] " : "      ",
+                     dir_entries[idx].name);
+            fb_printf("%-79.79s", line);
+            if (hl) fb_puts("\x1b[0m");
+        } else {
+            fb_printf("%-79s", "");
+        }
+    }
+
+    fb_gotoxy(0, 22);
+    fb_printf("\x1b[7m%-79s\x1b[0m", " Enter=open  Esc=cancel  T=type name  Up/Down=move");
+    fb_gotoxy(0, 23);
+    fb_printf("%-79s", "");
+
+    fwrite(frame_buf, 1, frame_len, stdout);
+    fflush(stdout);
+}
+
+/* Shows a file picker over the editor area. Entering a folder changes the
+   working directory to it, so the chosen file name is relative to it.
+   Returns 1 with the file name in out, or 0 if cancelled. */
+static int browse_for_file(char *out, size_t size) {
+    int sel = 0, top = 0;
+    load_dir_entries();
+
+    while (1) {
+        if (sel < top) top = sel;
+        if (sel >= top + BROWSER_ROWS) top = sel - BROWSER_ROWS + 1;
+        draw_browser(sel, top);
+
+        int key = read_key();
+        switch (key) {
+            case KEY_UP:
+                if (sel > 0) sel--;
+                break;
+            case KEY_DOWN:
+                if (sel < dir_count - 1) sel++;
+                break;
+            case KEY_ESC:
+                return 0;
+            case KEY_ENTER:
+                if (dir_entries[sel].is_dir) {
+                    if (change_dir(dir_entries[sel].name)) {
+                        load_dir_entries();
+                        sel = 0;
+                        top = 0;
+                    } else {
+                        show_message("Cannot open that folder.");
+                    }
+                } else {
+                    snprintf(out, size, "%s", dir_entries[sel].name);
+                    return 1;
+                }
+                break;
+            case 't':
+            case 'T':
+                if (prompt_line("Open: ", out, (int)size)) return 1;
+                break;
+        }
+    }
+}
+
 static int do_open(void) {
     char name[256];
-    if (!prompt_line("Open: ", name, sizeof(name))) return 0;
+    if (!browse_for_file(name, sizeof(name))) return 0;
 
     FILE *in = fopen(name, "r");
     if (!in) {
@@ -805,6 +968,7 @@ static void show_help(void) {
     printf("  Arrow Keys      - Navigate menus\n");
     printf("  Enter           - Select menu item\n");
     printf("  N/O/S/A/X       - Pick File menu item (New/Open/Save/Save As/Exit)\n");
+    printf("  Open (O)        - Browse folders (Enter=open, T=type a name)\n");
     printf("  ESC             - Close menu\n\n");
     printf("Keyboard Shortcuts:\n");
     printf("  Ctrl+N          - New file\n");
