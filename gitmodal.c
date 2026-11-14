@@ -1,5 +1,6 @@
 /* Git panel (Alt+G): branch and changed files of the current folder's repo,
-   with commit (stages everything) and push. git runs as a child process. */
+   with commit (stages everything), push, branch switch/new, merge and merge abort.
+   git runs as a child process. */
 #ifndef _WIN32
     #define _POSIX_C_SOURCE 200809L   /* popen/pclose under -std=c99 */
 #endif
@@ -7,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
 #ifdef _WIN32
     FILE *_popen(const char *command, const char *mode);
@@ -23,14 +25,25 @@
 #define MSG_MAX 256
 #define CMD_MAX 1536   /* room for a full temp path inside the git commit command */
 #define COMMIT_MAX 256
+#define NAME_MAX_LEN 128   /* longest branch name we accept */
 
 static char *text_buf = NULL;   /* git status output; header and files point into it */
 static char **files = NULL;     /* changed-file lines (porcelain) */
 static int nfiles = 0;
 static const char *header = "";  /* "master...origin/master [ahead 1]" */
 static int in_repo = 0;
+static int merging = 0;          /* a merge is stopped (MERGE_HEAD exists) */
 static int top = 0;             /* first visible file row */
 static char msg[MSG_MAX];       /* result of the last action, or a git error */
+
+/* Branch list (B = switch, M = merge). */
+static int picking = 0;          /* 1 = the branch list is showing */
+static int pick_merge = 0;       /* 1 = list picks a merge source; 0 = picks a branch to switch to */
+static char cur_branch[NAME_MAX_LEN] = "";
+static char **pick_name = NULL;  /* NULL entry = the "+ New branch..." row (switch mode only) */
+static int npick = 0;
+static int psel = 0;            /* highlighted row */
+static int ptop = 0;            /* first visible row */
 
 static void set_msg(const char *s) {
     snprintf(msg, sizeof msg, "%s", s);
@@ -130,6 +143,7 @@ static void clear_status(void) {
     nfiles = 0;
     header = "";
     in_repo = 0;
+    merging = 0;
 }
 
 /* Reads git status. Not being in a repo makes git exit non-zero, which is how
@@ -147,6 +161,11 @@ static void load_status(void) {
     }
     in_repo = 1;
     text_buf = out;
+
+    /* -q: no output, exit 0 only when a merge is in progress */
+    char *mo = NULL;
+    merging = (run_cmd("git rev-parse -q --verify MERGE_HEAD", &mo) == 0);
+    free(mo);
 
     int cap = 1;
     for (char *q = out; *q; q++) if (*q == '\n') cap++;
@@ -166,6 +185,16 @@ static void load_status(void) {
         if (!eol) break;
         p = eol + 1;
     }
+}
+
+/* Number of changed files that are in conflict (porcelain XY with a U, or both added/deleted). */
+static int count_conflicts(void) {
+    int n = 0;
+    for (int i = 0; i < nfiles; i++) {
+        char x = files[i][0], y = files[i][1];
+        if (x == 'U' || y == 'U' || (x == 'A' && y == 'A') || (x == 'D' && y == 'D')) n++;
+    }
+    return n;
 }
 
 /* Draws one full-width row. Text is cut at a character boundary so it never
@@ -213,10 +242,132 @@ static void draw(void) {
     else if (tabs_first_modified() >= 0) note = "Unsaved tabs are not included until you save them.";
     put_row(screen_h - 2, options_base_sgr(), note);
 
-    put_row(screen_h - 1, options_chrome_sgr(CH_STATUS),
-            in_repo ? " C Commit  P Push  R Refresh  Up/Down Scroll  Esc Close"
-                    : " Esc Close");
+    const char *foot;
+    if (!in_repo) foot = " Esc Close";
+    else if (merging) foot = " C Commit  A Abort merge  R Refresh  Esc Close";
+    else foot = " C Commit  P Push  B Branch  M Merge  R Refresh  Esc Close";
+    put_row(screen_h - 1, options_chrome_sgr(CH_STATUS), foot);
     fb_flush();
+}
+
+/* ---- Branch list ---- */
+
+static void clear_branches(void) {
+    for (int i = 0; i < npick; i++) free(pick_name[i]);
+    free(pick_name);
+    pick_name = NULL;
+    npick = 0;
+}
+
+/* Adds a branch name (NULL = the "+ New branch..." row). */
+static void add_pick(const char *name) {
+    char **nb = realloc(pick_name, sizeof(char *) * (npick + 1));
+    if (!nb) return;
+    pick_name = nb;
+    if (name) {
+        char *d = malloc(strlen(name) + 1);
+        if (!d) return;
+        strcpy(d, name);
+        pick_name[npick++] = d;
+    } else {
+        pick_name[npick++] = NULL;
+    }
+}
+
+/* Reads local branches from `git branch` (plain output: "* name" marks the current one). */
+static void load_branches(void) {
+    clear_branches();
+    cur_branch[0] = '\0';
+    psel = 0;
+    ptop = 0;
+    if (!pick_merge) add_pick(NULL);
+
+    char *out = NULL;
+    int rc = run_cmd("git branch", &out);
+    if (rc != 0 || !out) {
+        msg_from_output(out ? out : "", 0);
+        free(out);
+        return;
+    }
+
+    char *p = out;
+    while (*p) {
+        char *eol = strchr(p, '\n');
+        if (eol) *eol = '\0';
+        size_t l = strlen(p);
+        if (l > 0 && p[l - 1] == '\r') p[--l] = '\0';
+
+        if (l >= 3 && p[0] != '(') {
+            int is_cur = (p[0] == '*');
+            char *name = p + 2;
+            if (is_cur) snprintf(cur_branch, sizeof cur_branch, "%s", name);
+            if (!(pick_merge && is_cur)) add_pick(name);
+        }
+
+        if (!eol) break;
+        p = eol + 1;
+    }
+    free(out);
+}
+
+static void draw_pick(void) {
+    char title[300];
+    char line[300];
+    int rows = list_rows();
+
+    fb_reset();
+
+    if (pick_merge) snprintf(title, sizeof title, " Merge into %s: pick a branch", cur_branch[0] ? cur_branch : "(detached)");
+    else snprintf(title, sizeof title, " Switch branch (current: %s)", cur_branch[0] ? cur_branch : "(detached)");
+    put_row(0, options_chrome_sgr(CH_BAR), title);
+
+    for (int i = 0; i < rows; i++) {
+        int idx = ptop + i;
+        const char *sgr = options_base_sgr();
+        const char *t = "";
+        if (npick == 0 && i == 0) {
+            t = pick_merge ? "  No other local branches." : "";
+        } else if (idx < npick) {
+            if (pick_name[idx] == NULL) {
+                t = "  + New branch...";
+            } else {
+                snprintf(line, sizeof line, "  %s%s", cur_branch[0] && strcmp(cur_branch, pick_name[idx]) == 0 && !pick_merge ? "* " : "", pick_name[idx]);
+                t = line;
+            }
+            if (idx == psel) sgr = options_chrome_sgr(CH_DROP_SEL);
+        }
+        put_row(1 + i, sgr, t);
+    }
+
+    put_row(screen_h - 2, options_base_sgr(), msg[0] ? msg : "");
+    put_row(screen_h - 1, options_chrome_sgr(CH_STATUS), " Enter Pick  Up/Down Move  Esc Back");
+    fb_flush();
+}
+
+static void pick_clamp(void) {
+    int rows = list_rows();
+    if (npick == 0) psel = 0;
+    if (psel < 0) psel = 0;
+    if (psel >= npick) psel = npick > 0 ? npick - 1 : 0;
+    if (psel < ptop) ptop = psel;
+    if (psel >= ptop + rows) ptop = psel - rows + 1;
+    if (ptop < 0) ptop = 0;
+}
+
+/* Branch names go through the shell, so only plain names are allowed. */
+static int valid_branch_name(const char *s) {
+    if (!*s || s[0] == '-' || strlen(s) >= NAME_MAX_LEN) return 0;
+    for (const char *q = s; *q; q++) {
+        if (!(isalnum((unsigned char)*q) || *q == '.' || *q == '_' || *q == '/' || *q == '-')) return 0;
+    }
+    return 1;
+}
+
+/* Appends the reload reminder to a success message (open files are not reloaded). */
+static void add_reload_hint(void) {
+    char tmp[MSG_MAX];
+    snprintf(tmp, sizeof tmp, "%.200s  Reopen files to see changes.", msg);
+    set_msg(tmp);
 }
 
 /* Asks for a message, stages everything with git add -A, then commits. */
@@ -278,6 +429,80 @@ static void do_push(void) {
     load_status();
 }
 
+/* Checks out an existing branch. Git refuses if local changes would be overwritten; its message is shown. */
+static void do_switch(const char *name) {
+    if (!valid_branch_name(name)) { set_msg("Branch name not allowed."); return; }
+    char cmd[CMD_MAX];
+    snprintf(cmd, sizeof cmd, "git checkout %s", name);
+    char *out = NULL;
+    int rc = run_cmd(cmd, &out);
+    msg_from_output(out ? out : "", 0);
+    free(out);
+    if (rc == 0) add_reload_hint();
+    load_status();
+}
+
+static void do_new_branch(void) {
+    char name[NAME_MAX_LEN] = "";
+    if (!prompt_line("New branch name: ", name, sizeof name)) {
+        set_msg("Cancelled.");
+        return;
+    }
+    if (!valid_branch_name(name)) { set_msg("Branch name not allowed (letters, digits, . _ / -)."); return; }
+    char cmd[CMD_MAX];
+    snprintf(cmd, sizeof cmd, "git checkout -b %s", name);
+    char *out = NULL;
+    int rc = run_cmd(cmd, &out);
+    msg_from_output(out ? out : "", 0);
+    free(out);
+    if (rc == 0) set_msg("Created and switched to a new branch.");
+    load_status();
+}
+
+/* Merges a branch into the current one. On conflicts the merge stays open until fixed or aborted. */
+static void do_merge(const char *name) {
+    if (!valid_branch_name(name)) { set_msg("Branch name not allowed."); return; }
+    char cmd[CMD_MAX];
+    snprintf(cmd, sizeof cmd, "git merge --no-edit %s", name);
+    char *out = NULL;
+    int rc = run_cmd(cmd, &out);
+    msg_from_output(out ? out : "", 1);
+    free(out);
+    load_status();
+    if (rc == 0) {
+        add_reload_hint();
+    } else if (merging) {
+        char tmp[MSG_MAX];
+        snprintf(tmp, sizeof tmp, "Merge conflicts in %d file(s). Fix them, then C Commit, or A Abort merge.", count_conflicts());
+        set_msg(tmp);
+    }
+}
+
+static void do_merge_abort(void) {
+    char *out = NULL;
+    int rc = run_cmd("git merge --abort", &out);
+    msg_from_output(out ? out : "", rc != 0);
+    free(out);
+    load_status();
+}
+
+/* Runs the highlighted row of the branch list, then returns to the status view. */
+static void pick_activate(void) {
+    if (npick == 0) return;
+    const char *name = pick_name[psel];
+    picking = 0;
+    if (!name) do_new_branch();
+    else if (pick_merge) do_merge(name);
+    else do_switch(name);
+}
+
+static void open_pick(int merge) {
+    pick_merge = merge;
+    picking = 1;
+    msg[0] = '\0';
+    load_branches();
+}
+
 void git_modal(void) {
     int done = 0;
     msg[0] = '\0';
@@ -287,9 +512,27 @@ void git_modal(void) {
     load_status();
 
     while (!done) {
+        int key;
+        if (picking) {
+            pick_clamp();
+            draw_pick();
+            key = read_key();
+            if (key == -1) continue;
+
+            switch (key) {
+                case KEY_ESC:    picking = 0; msg[0] = '\0'; break;
+                case KEY_UP:     psel--; break;
+                case KEY_DOWN:   psel++; break;
+                case KEY_ENTER:  pick_activate(); break;
+                case KEY_RESIZE: term_update_size(); clear_screen(); break;
+                default: break;
+            }
+            continue;
+        }
+
         clamp_top();
         draw();
-        int key = read_key();
+        key = read_key();
         if (key == -1) continue;   /* unmapped key (e.g. Alt released): ignore, don't close */
 
         switch (key) {
@@ -301,6 +544,12 @@ void git_modal(void) {
             case 'C':        if (in_repo) do_commit(); break;
             case 'p':
             case 'P':        if (in_repo) do_push(); break;
+            case 'b':
+            case 'B':        if (in_repo) open_pick(0); break;
+            case 'm':
+            case 'M':        if (in_repo) open_pick(1); break;
+            case 'a':
+            case 'A':        if (in_repo && merging) do_merge_abort(); break;
             case 'r':
             case 'R':        load_status(); break;
             case KEY_RESIZE: term_update_size(); clear_screen(); break;
@@ -308,6 +557,7 @@ void git_modal(void) {
         }
     }
 
+    clear_branches();
     clear_status();
     set_cursor_visibility(1);
     clear_screen();
