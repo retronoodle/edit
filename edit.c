@@ -56,6 +56,7 @@ static int run_action(int action) {
         case ACT_TAB_WIDTH:
         case ACT_LINE_ENDS:
         case ACT_COLOR_SCHEME:
+        case ACT_LINE_NUMBERS:
             options_cycle(action);
             break;
     }

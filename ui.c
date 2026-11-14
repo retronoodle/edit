@@ -124,17 +124,43 @@ void draw_dropdown() {
     }
 }
 
+/* Width of the line-number gutter: digits for the last line number (at least 3)
+   plus one space. 0 when line numbers are off. */
+int gutter_w(void) {
+    if (!options.line_numbers) return 0;
+    int digits = 1, n = editor.line_count;
+    while (n >= 10) { digits++; n /= 10; }
+    if (digits < 3) digits = 3;   /* keeps the gutter from jumping on short files */
+    return digits + 1;
+}
+
+int text_w(void) {
+    return screen_w - gutter_w();
+}
+
 /* Draws one screen row of a file line. scroll_x and column positions are in
    display columns; each character is drawn whole, so wide characters take
-   two cells and never split. Control and invalid bytes show as '?'. */
+   two cells and never split. Control and invalid bytes show as '?'.
+   The line number (if shown) sits in the gutter and is not part of the text. */
 static void draw_row(int file_line, int has_sel, int sy1, int sx1, int sy2, int sx2) {
     int hl = 0;      /* 1 while drawing reverse video */
-    int out = 0;     /* screen cells emitted so far */
+    int out = 0;     /* text cells emitted so far */
+    int gw = gutter_w();
+    int tw = text_w();
+
+    if (gw) {
+        if (file_line < editor.line_count) {
+            fb_printf("\x1b[2m%*d ", gw - 1, file_line + 1);   /* dim number */
+            fb_puts(options_base_sgr());
+        } else {
+            fb_printf("%*s", gw, "");
+        }
+    }
 
     if (file_line < editor.line_count) {
         const Line *ln = &editor.lines[file_line];
         int pos = 0, col = 0;
-        int right = editor.scroll_x + screen_w;
+        int right = editor.scroll_x + tw;
 
         while (pos < ln->len && col < right) {
             int nxt = utf8_next(ln->text, ln->len, pos);
@@ -173,7 +199,7 @@ static void draw_row(int file_line, int has_sel, int sy1, int sx1, int sy2, int 
     }
 
     if (hl) fb_puts(options_base_sgr());
-    while (out < screen_w) { fb_write(" ", 1); out++; }
+    while (out < tw) { fb_write(" ", 1); out++; }
 }
 
 void draw_editor_area() {
@@ -201,7 +227,7 @@ void refresh_screen() {
     fb_puts(options_base_sgr());
 
     Line *cur = &editor.lines[editor.cursor_y];
-    int screen_x = utf8_col(cur->text, cur->len, editor.cursor_x) - editor.scroll_x;
+    int screen_x = utf8_col(cur->text, cur->len, editor.cursor_x) - editor.scroll_x + gutter_w();
     int screen_y = editor.cursor_y - editor.scroll_y + 1;
     fb_gotoxy(screen_x, screen_y);
     fb_puts("\x1b[?25h");   // show cursor

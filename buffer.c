@@ -6,6 +6,7 @@
 #include "editor.h"
 #include "buffer.h"
 #include "undo.h"
+#include "ui.h"
 #include "utf8.h"
 
 Editor editor;
@@ -106,10 +107,11 @@ void adjust_scroll() {
     Line *cur = &editor.lines[editor.cursor_y];
     int cx = utf8_col(cur->text, cur->len, editor.cursor_x);
 
+    int tw = text_w();
     if (cx < editor.scroll_x) {
         editor.scroll_x = cx;
-    } else if (cx >= editor.scroll_x + screen_w) {
-        editor.scroll_x = cx - screen_w + 1;
+    } else if (cx >= editor.scroll_x + tw) {
+        editor.scroll_x = cx - tw + 1;
     }
 
     if (editor.cursor_y < editor.scroll_y) {

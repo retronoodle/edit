@@ -25,9 +25,12 @@ static void cursor_to_cell(int x, int y) {
     if (line < 0) line = 0;
     if (line > editor.line_count - 1) line = editor.line_count - 1;
 
+    int tx = x - gutter_w();   /* clicks in the gutter land on column 0 */
+    if (tx < 0) tx = 0;
+
     Line *ln = &editor.lines[line];
     editor.cursor_y = line;
-    editor.cursor_x = utf8_byte_at_col(ln->text, ln->len, editor.scroll_x + x);
+    editor.cursor_x = utf8_byte_at_col(ln->text, ln->len, editor.scroll_x + tx);
 }
 
 /* Scrolls the view by rows (negative is up). The cursor keeps its column and

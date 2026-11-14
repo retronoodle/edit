@@ -27,7 +27,7 @@ What the editor needs to move from a DOS-style toy to something that feels curre
 - All four menus open and run their items. Menu tables and menu keys live in `menu.c`; Options settings in `options.c`.
 - File, Edit, Search: every item works (Edit adds Select All, Ctrl+A).
 - Options: tab width (2/4/8), line endings (LF/CRLF), color scheme (Default/Blue/Light). Toggles update in place and the menu stays open.
-- Still open: word wrap and line numbers (need the features first). Options are not saved between runs (see Config file).
+- Still open: word wrap (needs the feature first). Options are not saved between runs (see Config file).
 
 ### 7. Line wrapping or horizontal scrolling
 - Currently limited to the visible width.
@@ -43,7 +43,7 @@ What the editor needs to move from a DOS-style toy to something that feels curre
 
 - ~~**Mouse support**~~ (done): click places the cursor, drag selects, Shift+click extends, wheel scrolls 3 rows, and clicks open and pick menu items. Lives in `mouse.c`; terminal reporting in `term.c`.
   - Limits: left button only, no double-click word select. Windows console QuickEdit is turned off while the editor runs (restored on exit), so console text can't be selected by mouse.
-- **Line numbers**: optional display in the left margin.
+- ~~**Line numbers**~~ (done): Options > Line numbers shows dim numbers in a left gutter. The gutter is at least 3 digits and widens as the file grows. Lives in `ui.c` (`gutter_w`, `text_w`).
 - **Multiple file support**: tabs or buffers for editing several files.
 - **Better file operations**: recent files, file browser, save-as dialog.
 - **Syntax highlighting**: at least basic keyword and comment coloring.
