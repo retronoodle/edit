@@ -427,6 +427,7 @@ int read_key_wait(int ms) {
         case 3:   return KEY_CTRL_C;
         case 22:  return KEY_CTRL_V;
         case 24:  return KEY_CTRL_X;
+        case 5:   return KEY_CTRL_E;
         case 6:   return KEY_CTRL_F;
         case 18:  return KEY_CTRL_R;
         case 7:   return KEY_CTRL_G;
@@ -501,6 +502,7 @@ static int read_key_any(void) {
     if (ch == 127 || ch == 8) return KEY_BACKSPACE; // DEL or BS
     if (ch == 9) return KEY_TAB;
     if (ch == 13 || ch == 10) return KEY_ENTER;
+    if (ch == 5) return KEY_CTRL_E;
     if (ch == 14) return KEY_CTRL_N;
     if (ch == 15) return KEY_CTRL_O;
     if (ch == 17) return KEY_CTRL_Q;

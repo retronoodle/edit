@@ -64,6 +64,7 @@ void set_line_wrap(int enable);
 #define KEY_CTRL_G (KEY_BASE + 1212)
 #define KEY_CTRL_A (KEY_BASE + 1213)
 #define KEY_CTRL_W (KEY_BASE + 1214)
+#define KEY_CTRL_E (KEY_BASE + 1215)
 #define KEY_ALT_F (KEY_BASE + 1301)
 #define KEY_ALT_E (KEY_BASE + 1302)
 #define KEY_ALT_S (KEY_BASE + 1303)

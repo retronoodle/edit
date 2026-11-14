@@ -1,4 +1,4 @@
-/* File operations: save, save-as, new, open (with a folder browser), exit. */
+/* File operations: save, save-as, new, open (with a folder browser), recent files, exit. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,6 +22,8 @@
 #include "undo.h"
 #include "recovery.h"
 #include "tabs.h"
+#include "recent.h"
+#include "utf8.h"
 
 /* ---- File operations. Each returns 1 on success, 0 if cancelled/failed. ---- */
 
@@ -48,6 +50,7 @@ static int write_file(const char *name) {
 }
 
 int do_save_as(void);
+static int browse(int save_mode, const char *suggest, char *out, size_t size);
 
 int do_save(void) {
     if (!tab_named(tab_current())) {
@@ -56,13 +59,52 @@ int do_save(void) {
     return write_file(editor.filename);
 }
 
+/* Asks before replacing a file that exists. Returns 1 for Yes. */
+static int confirm_overwrite(const char *name) {
+    char msg[320];
+    snprintf(msg, sizeof(msg), "%s exists. Overwrite? (Y)es / (N)o", name);
+    gotoxy(0, screen_h - 2);
+    printf("%-*.*s", screen_w - 1, screen_w - 1, msg);
+    fflush(stdout);
+
+    while (1) {
+        int c = getch_cp();
+        if (c == 'y' || c == 'Y') return 1;
+        if (c == 'n' || c == 'N' || c == 27) return 0;
+    }
+}
+
+static int file_exists(const char *name) {
+    FILE *f = fopen(name, "rb");
+    if (!f) return 0;
+    fclose(f);
+    return 1;
+}
+
+static const char *base_name(const char *path) {
+    const char *s = path;
+    for (const char *p = path; *p; p++) {
+        if (*p == '/' || *p == '\\') s = p + 1;
+    }
+    return s;
+}
+
 int do_save_as(void) {
-    char name[256], old[256];
-    if (!prompt_line("Save as: ", name, sizeof(name))) return 0;
+    char name[256], old[256], suggest[256];
+    int named = tab_named(tab_current());
+    if (named) snprintf(suggest, sizeof(suggest), "%s", base_name(editor.filename));
+    else snprintf(suggest, sizeof(suggest), "%s", "untitled.txt");
+
+    if (browse(1, suggest, name, sizeof(name)) != 1) return 0;
+
+    int same_as_current = named && strcmp(name, editor.filename) == 0;
+    if (!same_as_current && file_exists(name) && !confirm_overwrite(name)) return 0;
+
     snprintf(old, sizeof(old), "%s", editor.filename);
     if (!write_file(name)) return 0;
     strcpy(editor.filename, name);
     tab_mark_named();
+    recent_add(name);
     if (strcmp(old, name) != 0) recovery_discard_name(old);   /* old name's backup is stale */
     return 1;
 }
@@ -104,7 +146,7 @@ int do_close_tab(void) {
     return 1;
 }
 
-/* ---- File browser (used by Open) ---- */
+/* ---- File browser (Open and Save As) ---- */
 
 #define MAX_DIR_ENTRIES 512
 /* List rows sit between the "Open:" line (row 1) and the two footer rows. */
@@ -185,7 +227,36 @@ static int change_dir(const char *path) {
 #endif
 }
 
-static void draw_browser(int sel, int top) {
+/* Save-as name field: the name the file will get. */
+static int is_text_key(int key) {
+    return key >= 32 && key != 127 && (key < 0x80 || key >= 0xA0) && key < KEY_BASE;
+}
+
+static void name_append(char *typed, size_t size, int key) {
+    char enc[4];
+    int n = utf8_encode(key, enc);
+    size_t len = strlen(typed);
+    if (len + (size_t)n + 1 > size) return;   /* name is full */
+    memcpy(typed + len, enc, n);
+    typed[len + n] = '\0';
+}
+
+static void name_backspace(char *typed) {
+    size_t len = strlen(typed);
+    if (len == 0) return;
+    len--;
+    while (len > 0 && ((unsigned char)typed[len] & 0xC0) == 0x80) len--;   /* whole UTF-8 character */
+    typed[len] = '\0';
+}
+
+/* In Save As, moving onto a file copies its name into the name field. */
+static void follow_selection(int save_mode, int sel, char *typed, size_t size) {
+    if (save_mode && !dir_entries[sel].is_dir) {
+        snprintf(typed, size, "%s", dir_entries[sel].name);
+    }
+}
+
+static void draw_browser(int sel, int top, int save_mode, const char *typed) {
     char cwd[512];
     char line[512];   /* large enough for any path; fb_printf clips to the screen width */
     current_dir(cwd, sizeof(cwd));
@@ -193,7 +264,8 @@ static void draw_browser(int sel, int top) {
     fb_reset();
     fb_puts("\x1b[?25l");
 
-    snprintf(line, sizeof(line), " Open: %s", cwd);
+    snprintf(line, sizeof(line), "%s", save_mode ? " Save as: " : " Open: ");
+    strncat(line, cwd, sizeof(line) - strlen(line) - 1);
     fb_gotoxy(0, 1);
     fb_printf("\x1b[7m%-*.*s%s", screen_w - 1, screen_w - 1, line, options_base_sgr());
 
@@ -214,32 +286,47 @@ static void draw_browser(int sel, int top) {
     }
 
     fb_gotoxy(0, screen_h - 3);
-    fb_printf("\x1b[7m%-*s%s", screen_w - 1, " Enter=open  Esc=cancel  T=type name  Up/Down=move", options_base_sgr());
+    fb_printf("\x1b[7m%-*s%s", screen_w - 1,
+              save_mode ? " Enter=save  Esc=cancel  Up/Down=move"
+                        : " Enter=open  Esc=cancel  T=type name  R=recent  Up/Down=move",
+              options_base_sgr());
     fb_gotoxy(0, screen_h - 2);
-    fb_printf("%-*s", screen_w - 1, "");
+    if (save_mode) {
+        snprintf(line, sizeof(line), " Name: %s_", typed);
+        fb_printf("%-*.*s", screen_w - 1, screen_w - 1, line);
+    } else {
+        fb_printf("%-*s", screen_w - 1, "");
+    }
 
     fb_flush();
 }
 
-/* Shows a file picker over the editor area. Entering a folder changes the
+/* Shows a file browser over the editor area. Entering a folder changes the
    working directory to it, so the chosen file name is relative to it.
-   Returns 1 with the file name in out, or 0 if cancelled. */
-static int browse_for_file(char *out, size_t size) {
+   Open mode returns 1 with the file name in out. Save mode returns 1 with the
+   typed name in out. Open mode returns 2 when the user asks for the recent
+   list. Returns 0 if cancelled. */
+static int browse(int save_mode, const char *suggest, char *out, size_t size) {
     int sel = 0, top = 0;
+    char typed[256];
+    snprintf(typed, sizeof(typed), "%s", suggest ? suggest : "");
     load_dir_entries();
+    follow_selection(save_mode, sel, typed, sizeof(typed));
 
     while (1) {
         if (sel < top) top = sel;
         if (sel >= top + browser_rows()) top = sel - browser_rows() + 1;
-        draw_browser(sel, top);
+        draw_browser(sel, top, save_mode, typed);
 
         int key = read_key();
         switch (key) {
             case KEY_UP:
                 if (sel > 0) sel--;
+                follow_selection(save_mode, sel, typed, sizeof(typed));
                 break;
             case KEY_DOWN:
                 if (sel < dir_count - 1) sel++;
+                follow_selection(save_mode, sel, typed, sizeof(typed));
                 break;
             case KEY_RESIZE:
                 term_update_size();
@@ -247,26 +334,78 @@ static int browse_for_file(char *out, size_t size) {
                 break;
             case KEY_ESC:
                 return 0;
+            case KEY_BACKSPACE:
+                if (save_mode) name_backspace(typed);
+                break;
             case KEY_ENTER:
                 if (dir_entries[sel].is_dir) {
                     if (change_dir(dir_entries[sel].name)) {
                         load_dir_entries();
                         sel = 0;
                         top = 0;
+                        follow_selection(save_mode, sel, typed, sizeof(typed));
                     } else {
                         show_message("Cannot open that folder.");
                     }
-                } else {
+                } else if (!save_mode) {
                     snprintf(out, size, "%s", dir_entries[sel].name);
+                    return 1;
+                } else {
+                    /* Save: the typed name, which may be a path (used as given) */
+                    if (typed[0] == '\0') {
+                        show_message("Type a file name first.");
+                        break;
+                    }
+                    snprintf(out, size, "%s", typed);
                     return 1;
                 }
                 break;
-            case 't':
-            case 'T':
-                if (prompt_line("Open: ", out, (int)size)) return 1;
+            default:
+                if (!save_mode) {
+                    if (key == 't' || key == 'T') {
+                        if (prompt_line("Open: ", out, (int)size)) return 1;
+                    } else if (key == 'r' || key == 'R') {
+                        if (recent_count() > 0) return 2;
+                        show_message("No recent files.");
+                    }
+                } else if (is_text_key(key)) {
+                    name_append(typed, sizeof(typed), key);
+                }
                 break;
         }
     }
+}
+
+/* ---- Recent files list ---- */
+
+static void draw_recent(int sel, int top) {
+    char line[512];
+    fb_reset();
+    fb_puts("\x1b[?25l");
+
+    fb_gotoxy(0, 1);
+    fb_printf("\x1b[7m%-*.*s%s", screen_w - 1, screen_w - 1, " Recent files", options_base_sgr());
+
+    for (int row = 0; row < browser_rows(); row++) {
+        int idx = top + row;
+        fb_gotoxy(0, 2 + row);
+        if (idx < recent_count()) {
+            int hl = (idx == sel);
+            if (hl) fb_puts("\x1b[7m");
+            snprintf(line, sizeof(line), "  %s", recent_get(idx));
+            fb_printf("%-*.*s", screen_w - 1, screen_w - 1, line);
+            if (hl) fb_puts(options_base_sgr());
+        } else {
+            fb_printf("%-*s", screen_w - 1, "");
+        }
+    }
+
+    fb_gotoxy(0, screen_h - 3);
+    fb_printf("\x1b[7m%-*s%s", screen_w - 1, " Enter=open  Esc=cancel  Up/Down=move", options_base_sgr());
+    fb_gotoxy(0, screen_h - 2);
+    fb_printf("%-*s", screen_w - 1, "");
+
+    fb_flush();
 }
 
 void load_stream(FILE *in) {
@@ -317,6 +456,7 @@ int open_path(const char *name, int create_missing) {
     int i = tab_find(name);
     if (i >= 0) {
         tab_switch(i);
+        recent_add(name);
         return 1;
     }
 
@@ -344,12 +484,60 @@ int open_path(const char *name, int create_missing) {
     strcpy(editor.filename, name);
     tab_mark_named();
     editor.modified = 0;
+    if (in) recent_add(name);   /* only files that exist go in the recent list */
     return 1;
+}
+
+/* Picks a file from the recent list and opens it. */
+int do_open_recent(void) {
+    int sel = 0, top = 0;
+    if (recent_count() == 0) {
+        show_message("No recent files.");
+        return 0;
+    }
+
+    while (1) {
+        if (recent_count() == 0) return 0;
+        if (sel >= recent_count()) sel = recent_count() - 1;
+        if (sel < top) top = sel;
+        if (sel >= top + browser_rows()) top = sel - browser_rows() + 1;
+        draw_recent(sel, top);
+
+        int key = read_key();
+        switch (key) {
+            case KEY_UP:
+                if (sel > 0) sel--;
+                break;
+            case KEY_DOWN:
+                if (sel < recent_count() - 1) sel++;
+                break;
+            case KEY_RESIZE:
+                term_update_size();
+                clear_screen();
+                break;
+            case KEY_ESC:
+                return 0;
+            case KEY_ENTER: {
+                char path[512];   /* copy: opening updates the list */
+                snprintf(path, sizeof(path), "%s", recent_get(sel));
+                FILE *f = fopen(path, "rb");
+                if (!f) {
+                    recent_remove(sel);
+                    show_message("File not found. Removed from recent list.");
+                    break;
+                }
+                fclose(f);
+                return open_path(path, 0);
+            }
+        }
+    }
 }
 
 int do_open(void) {
     char name[256];
-    if (!browse_for_file(name, sizeof(name))) return 0;
+    int r = browse(0, NULL, name, sizeof(name));
+    if (r == 2) return do_open_recent();
+    if (r != 1) return 0;
     return open_path(name, 0);
 }
 

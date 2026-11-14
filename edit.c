@@ -17,6 +17,7 @@
 #include "recovery.h"
 #include "mouse.h"
 #include "tabs.h"
+#include "recent.h"
 
 #define IDLE_POLL_MS 1000   /* how often the main loop wakes when no key is pressed */
 
@@ -38,6 +39,7 @@ static int run_action(int action) {
     switch (action) {
         case ACT_NEW:        sel_clear(); do_new(); break;
         case ACT_OPEN:       sel_clear(); do_open(); break;
+        case ACT_RECENT:     sel_clear(); do_open_recent(); break;
         case ACT_SAVE:       do_save(); break;
         case ACT_SAVE_AS:    do_save_as(); break;
         case ACT_CLOSE_TAB:  do_close_tab(); break;
@@ -72,6 +74,7 @@ int main(int argc, char *argv[]) {
 
     init_editor();
     tabs_init();
+    recent_load();
 
     /* Each file named on the command line opens in its own tab. The first
        one replaces the empty starting tab; the first tab is shown at start. */
@@ -155,6 +158,7 @@ int main(int argc, char *argv[]) {
 
             case KEY_CTRL_N: sel_clear(); do_new(); break;
             case KEY_CTRL_O: sel_clear(); do_open(); break;
+            case KEY_CTRL_E: sel_clear(); do_open_recent(); break;
             case KEY_CTRL_S: do_save(); break;
             case KEY_CTRL_Q: if (do_exit()) running = 0; break;
             case KEY_CTRL_Z: sel_clear(); undo_undo(); break;

@@ -23,7 +23,8 @@ This is a simple text editor written in C, similar to MS-DOS EDIT. It runs in th
 - `options.c/.h`: `options` (tab width, line endings, color scheme), `options_cycle`, `options_label`, `options_base_sgr` (the scheme's SGR; use it instead of a plain `\x1b[0m`)
 - `ui.c/.h`: status line, menu bar, dropdown, editor area, `refresh_screen`, `show_message`, `prompt_line`, `show_help`
 - `tabs.c/.h`: open documents as tabs. The active document is the global `editor` (plus undo.c's active history); other tabs hold their own copy in a slot. `tab_switch()` moves data between them. Tab bar drawing and hit-testing live here too (`tab_bar_range`, `tab_bar_hit`)
-- `files.c/.h`: save/save-as/new tab/open (`open_path`)/close tab/exit (asks about each modified tab) and the folder browser
+- `files.c/.h`: save/save-as/new tab/open (`open_path`)/close tab/exit (asks about each modified tab), the folder browser (`browse`, shared by Open and Save As) and the recent files list (`do_open_recent`)
+- `recent.c/.h`: last 10 files opened or saved (full paths), kept in `~/.edit_recent` (`USERPROFILE` or `HOME`)
 - `clipboard.c/.h`: selection (Shift+arrows, Ctrl+A select all), internal clipboard, cut/copy/paste (Ctrl+X/C/V)
 - `undo.c/.h`: undo/redo operation log (`undo_record_*` called from buffer.c, `undo_undo`/`undo_redo`, Ctrl+Z/Ctrl+Y)
 - `search.c/.h`: Find, Find Next, Replace, Go to Line (Ctrl+F, F3, Ctrl+R, Ctrl+G; Search menu)

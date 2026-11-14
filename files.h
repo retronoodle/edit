@@ -6,6 +6,7 @@
 
 int do_new(void);                  /* new untitled tab */
 int do_open(void);                 /* browse for a file, open it in a tab */
+int do_open_recent(void);          /* pick from the recent files list, open it in a tab */
 int open_path(const char *name, int create_missing);   /* open a named file in a tab (see files.c) */
 int do_save(void);
 int do_save_as(void);
