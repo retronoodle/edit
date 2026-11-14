@@ -17,6 +17,10 @@ void delete_char(void);
 void backspace(void);
 void insert_newline(void);
 
+/* Multi-line edits used by clipboard and selection; each is recorded for undo. */
+void insert_text(const char *s, int n);          /* inserts at the cursor; '\n' splits lines */
+void delete_range(int y1, int x1, int y2, int x2);  /* deletes [start, end); cursor moves to start */
+
 /* Raw text changes with no undo recording (used by undo/redo). */
 void raw_insert_text(int y, int x, const char *s, int n);
 void raw_delete_text(int y, int x, int n);

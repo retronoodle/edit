@@ -36,6 +36,8 @@ static OpList undo_list;
 static OpList redo_list;
 static int break_next = 1;   /* next record starts a new undo step */
 static int next_group = 1;
+static int in_compound = 0;      /* between undo_begin_group and undo_end_group */
+static int compound_group = 0;   /* group id shared by every op in the compound step */
 
 static void die_oom(void) {
     fprintf(stderr, "edit: out of memory\n");
@@ -116,53 +118,69 @@ static void new_edit(void) {
     list_clear(&redo_list);
 }
 
+/* Group id for a new op: the compound group if one is open, else a fresh one. */
+static int cur_group(void) {
+    return in_compound ? compound_group : ++next_group;
+}
+
 /* ---- Public recording API ---- */
 
 void undo_break_group(void) {
     break_next = 1;
 }
 
+void undo_begin_group(void) {
+    in_compound = 1;
+    compound_group = ++next_group;
+    break_next = 1;
+}
+
+void undo_end_group(void) {
+    in_compound = 0;
+    break_next = 1;
+}
+
 void undo_record_insert(int y, int x, const char *s, int n, int cx, int cy) {
     new_edit();
-    UndoOp *t = break_next ? NULL : list_top(&undo_list);
+    UndoOp *t = (break_next || in_compound) ? NULL : list_top(&undo_list);
     if (t && t->kind == OP_INSERT && t->y == y && t->x + t->len == x) {
         op_append(t, s, n);
     } else {
-        list_push(&undo_list, make_op(OP_INSERT, ++next_group, y, x, s, n, cx, cy));
+        list_push(&undo_list, make_op(OP_INSERT, cur_group(), y, x, s, n, cx, cy));
     }
     break_next = 0;
 }
 
 void undo_record_delete(int y, int x, const char *s, int n, int cx, int cy) {
     new_edit();
-    UndoOp *t = break_next ? NULL : list_top(&undo_list);
+    UndoOp *t = (break_next || in_compound) ? NULL : list_top(&undo_list);
     if (t && t->kind == OP_DELETE && t->y == y && t->x == x) {
         op_append(t, s, n);            /* Delete key: next char moves into x */
     } else if (t && t->kind == OP_DELETE && t->y == y && x + n == t->x) {
         op_prepend(t, s, n);           /* Backspace: next char to the left */
         t->x = x;
     } else {
-        list_push(&undo_list, make_op(OP_DELETE, ++next_group, y, x, s, n, cx, cy));
+        list_push(&undo_list, make_op(OP_DELETE, cur_group(), y, x, s, n, cx, cy));
     }
     break_next = 0;
 }
 
 void undo_record_split(int y, int x, int cx, int cy) {
     new_edit();
-    list_push(&undo_list, make_op(OP_SPLIT, ++next_group, y, x, NULL, 0, cx, cy));
+    list_push(&undo_list, make_op(OP_SPLIT, cur_group(), y, x, NULL, 0, cx, cy));
     break_next = 0;
 }
 
 void undo_record_join(int y, int x, int cx, int cy) {
     new_edit();
-    list_push(&undo_list, make_op(OP_JOIN, ++next_group, y, x, NULL, 0, cx, cy));
+    list_push(&undo_list, make_op(OP_JOIN, cur_group(), y, x, NULL, 0, cx, cy));
     break_next = 0;
 }
 
 /* Overwrite mode: one character replaced by another, as a single step. */
 void undo_record_replace(int y, int x, char old, char ch, int cx, int cy) {
     new_edit();
-    int g = ++next_group;
+    int g = cur_group();
     list_push(&undo_list, make_op(OP_DELETE, g, y, x, &old, 1, cx, cy));
     list_push(&undo_list, make_op(OP_INSERT, g, y, x, &ch, 1, cx, cy));
     break_next = 1;
