@@ -13,6 +13,9 @@ static const MenuItem file_items[] = {
     {"Open...",    "Ctrl+O", 'O', ACT_OPEN,    0, 0},
     {"Save",       "Ctrl+S", 'S', ACT_SAVE,    0, 0},
     {"Save As...", "",       'A', ACT_SAVE_AS, 0, 0},
+    {"Close Tab",  "Ctrl+W", 'W', ACT_CLOSE_TAB, 0, 0},
+    {"Next Tab",   "F6",     'T', ACT_NEXT_TAB,  0, 0},
+    {"Previous Tab", "F7",   'V', ACT_PREV_TAB,  0, 0},
     {"Exit",       "Ctrl+Q", 'X', ACT_EXIT,    0, 0},
 };
 

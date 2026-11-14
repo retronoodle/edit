@@ -397,6 +397,8 @@ int read_key_wait(int ms) {
             case VK_F3:     return KEY_F3;
             case VK_F4:     return KEY_F4;
             case VK_F5:     return KEY_F5;
+            case VK_F6:     return KEY_F6;
+            case VK_F7:     return KEY_F7;
             case VK_F10:    return KEY_F10;
             case VK_INSERT: return KEY_INSERT;
             case VK_DELETE: return KEY_DELETE;
@@ -429,6 +431,7 @@ int read_key_wait(int ms) {
         case 18:  return KEY_CTRL_R;
         case 7:   return KEY_CTRL_G;
         case 1:   return KEY_CTRL_A;
+        case 23:  return KEY_CTRL_W;
         default:  return ch;   /* printable text, any Unicode code point */
     }
 }
@@ -511,6 +514,7 @@ static int read_key_any(void) {
     if (ch == 18) return KEY_CTRL_R;
     if (ch == 7) return KEY_CTRL_G;
     if (ch == 1) return KEY_CTRL_A;
+    if (ch == 23) return KEY_CTRL_W;
 
     if (ch >= 0xC2 && ch <= 0xF4) {   // UTF-8 lead byte: return the code point
         int need = ch >= 0xF0 ? 3 : ch >= 0xE0 ? 2 : 1;
@@ -577,6 +581,8 @@ static int read_key_any(void) {
                             case 13: return KEY_F3;     // ESC[13~
                             case 14: return KEY_F4;     // ESC[14~
                             case 15: return KEY_F5;     // ESC[15~
+                            case 17: return KEY_F6;     // ESC[17~
+                            case 18: return KEY_F7;     // ESC[18~
                             case 21: return KEY_F10;    // ESC[21~
                             default: return -1;
                         }

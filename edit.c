@@ -16,6 +16,7 @@
 #include "utf8.h"
 #include "recovery.h"
 #include "mouse.h"
+#include "tabs.h"
 
 #define IDLE_POLL_MS 1000   /* how often the main loop wakes when no key is pressed */
 
@@ -39,6 +40,9 @@ static int run_action(int action) {
         case ACT_OPEN:       sel_clear(); do_open(); break;
         case ACT_SAVE:       do_save(); break;
         case ACT_SAVE_AS:    do_save_as(); break;
+        case ACT_CLOSE_TAB:  do_close_tab(); break;
+        case ACT_NEXT_TAB:   tab_next(); break;
+        case ACT_PREV_TAB:   tab_prev(); break;
         case ACT_EXIT:       return do_exit();
 
         case ACT_UNDO:       sel_clear(); undo_undo(); break;
@@ -67,10 +71,14 @@ int main(int argc, char *argv[]) {
     int running = 1;
 
     init_editor();
+    tabs_init();
 
-    if (argc > 1) {
-        strcpy(editor.filename, argv[1]);
+    /* Each file named on the command line opens in its own tab. The first
+       one replaces the empty starting tab; the first tab is shown at start. */
+    for (int i = 1; i < argc; i++) {
+        open_path(argv[i], 1);
     }
+    if (argc > 1) tab_switch(0);
 
 #ifndef _WIN32
     enable_raw_mode();
@@ -155,6 +163,9 @@ int main(int argc, char *argv[]) {
             case KEY_CTRL_X: clip_cut(); break;
             case KEY_CTRL_V: clip_paste(); break;
             case KEY_CTRL_A: sel_select_all(); break;
+            case KEY_CTRL_W: do_close_tab(); break;
+            case KEY_F6: tab_next(); break;
+            case KEY_F7: tab_prev(); break;
             case KEY_CTRL_F: search_find(); break;
             case KEY_CTRL_R: search_replace(); break;
             case KEY_CTRL_G: search_goto_line(); break;
@@ -207,7 +218,6 @@ int main(int argc, char *argv[]) {
     set_line_wrap(1);
 #endif
     set_cursor_visibility(1);
-    undo_clear();
-    free_all_lines();
+    tabs_free_all();
     return 0;
 }

@@ -10,6 +10,12 @@
 extern int screen_w;
 extern int screen_h;
 
+/* Rows: 0 menu bar, TAB_ROW tab bar, text from TEXT_TOP down to screen_h-3,
+   screen_h-2 message/prompt, screen_h-1 status line. */
+#define TAB_ROW 1
+#define TEXT_TOP 2
+#define TEXT_ROWS (screen_h - TEXT_TOP - 2)   /* visible text rows */
+
 typedef struct {
     char *text;     /* always NUL-terminated */
     int len;        /* strlen(text), kept in sync */

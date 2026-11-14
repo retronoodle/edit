@@ -22,12 +22,13 @@ This is a simple text editor written in C, similar to MS-DOS EDIT. It runs in th
 - `menu.c/.h`: menu tables (`menus[]`, items with label/hint/mnemonic/action), menu-mode keys (`menu_open_key`, `menu_handle_key`), and the `ACT_*` action codes
 - `options.c/.h`: `options` (tab width, line endings, color scheme), `options_cycle`, `options_label`, `options_base_sgr` (the scheme's SGR; use it instead of a plain `\x1b[0m`)
 - `ui.c/.h`: status line, menu bar, dropdown, editor area, `refresh_screen`, `show_message`, `prompt_line`, `show_help`
-- `files.c/.h`: save/save-as/new/open/exit and the folder browser
+- `tabs.c/.h`: open documents as tabs. The active document is the global `editor` (plus undo.c's active history); other tabs hold their own copy in a slot. `tab_switch()` moves data between them. Tab bar drawing and hit-testing live here too (`tab_bar_range`, `tab_bar_hit`)
+- `files.c/.h`: save/save-as/new tab/open (`open_path`)/close tab/exit (asks about each modified tab) and the folder browser
 - `clipboard.c/.h`: selection (Shift+arrows, Ctrl+A select all), internal clipboard, cut/copy/paste (Ctrl+X/C/V)
 - `undo.c/.h`: undo/redo operation log (`undo_record_*` called from buffer.c, `undo_undo`/`undo_redo`, Ctrl+Z/Ctrl+Y)
 - `search.c/.h`: Find, Find Next, Replace, Go to Line (Ctrl+F, F3, Ctrl+R, Ctrl+G; Search menu)
 - `utf8.c/.h`: UTF-8 decode/encode, character boundaries, display width (`cp_width`, `utf8_col`, `utf8_byte_at_col`). `test_utf8.c` holds its unit tests (`make test`)
-- `recovery.c/.h`: crash recovery. `recovery_tick()` (main loop) writes `<file>.recover` every 30 s while modified; `recovery_discard()` runs after save and on discard; `recovery_check_on_startup()` offers to restore
+- `recovery.c/.h`: crash recovery. `recovery_tick()` (main loop) writes `<file>.recover` for every modified tab every 30 s; `recovery_discard_name()` runs after save, on discard and on tab close; `recovery_check_on_startup()` offers to restore the active tab
 - `mouse.c/.h`: mouse clicks, drag selection, wheel scrolling and menu-bar clicks (`mouse_handle`). term.c reads the events (`KEY_MOUSE`, `term_get_mouse`); `read_key()` skips them, so only the main loop sees mouse input
 - `edit.c`: `main`, main loop, `run_action()` (runs a menu action or key command)
 
@@ -69,8 +70,9 @@ This fixes cross-platform issues like:
 
 Screen size comes from the console and follows window resizes (`term_update_size()` sets `screen_w`/`screen_h`; 80x25 is the fallback, 40x10 the minimum). Rows are relative to `screen_h`:
 - Line 0: Menu bar showing "File Edit Search Options" (all four are working dropdowns)
-- Lines 1 to screen_h-2: Editable text area (the message/prompt row is drawn over the last one)
-- Line screen_h-2: Message and prompt row
+- Line 1 (`TAB_ROW`): Tab bar, one label per open file; the active tab is reverse video, `*` marks unsaved changes
+- Lines `TEXT_TOP` (2) to screen_h-3: Editable text area (`TEXT_ROWS` rows; use these constants, not literal row numbers)
+- Line screen_h-2: Message and prompt row (blank when drawing; messages are printed over it)
 - Line screen_h-1: Status line with function key hints, cursor position, mode (INS/OVR), modified flag (*), filename
 
 ### Main Loop
@@ -88,3 +90,5 @@ The main loop in `main()` (edit.c) reads a key. Menu activation and menu-mode ke
 - Options are not saved between runs yet
 - The main loop uses `read_key_wait(ms)` (1 s timeout) so backups run while idle. Only the main loop should use it; prompts and browsers use `read_key()`, which blocks
 - `files.c:load_stream()` reads a stream into the buffer. Recovery uses it, so keep it free of filename or modified-flag changes
+- Per-document state (lines, cursor, filename, modified, selection, undo history, CRLF) must move with its tab. Add new per-document fields to `Editor` or `undo.c`'s `UndoState`, and check `tabs.c` (`stash_active`/`load_active`) still carries them. Global state stays global (clipboard, search text, options)
+- The tab limit is `MAX_TABS` (16). Tabs are closed with Ctrl+W; F6/F7 move between them

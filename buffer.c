@@ -116,8 +116,8 @@ void adjust_scroll() {
 
     if (editor.cursor_y < editor.scroll_y) {
         editor.scroll_y = editor.cursor_y;
-    } else if (editor.cursor_y >= editor.scroll_y + screen_h - 2) {
-        editor.scroll_y = editor.cursor_y - screen_h + 3;
+    } else if (editor.cursor_y >= editor.scroll_y + TEXT_ROWS) {
+        editor.scroll_y = editor.cursor_y - TEXT_ROWS + 1;
     }
 }
 

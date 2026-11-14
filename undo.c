@@ -10,28 +10,7 @@
 #include "ui.h"
 #include "undo.h"
 
-typedef enum {
-    OP_INSERT,   /* text inserted at (y, x) */
-    OP_DELETE,   /* text deleted at (y, x) */
-    OP_SPLIT,    /* line y split at column x (Enter) */
-    OP_JOIN      /* line y+1 joined onto line y; x is line y's old length */
-} OpKind;
-
-typedef struct {
-    OpKind kind;
-    int group;       /* ops with the same group undo/redo together */
-    int y, x;
-    char *text;      /* heap copy for INSERT/DELETE, NULL otherwise */
-    int len;
-    int cx, cy;      /* cursor before the op; restored on undo */
-} UndoOp;
-
-typedef struct {
-    UndoOp *ops;
-    int count;
-    int cap;
-} OpList;
-
+/* The active history. undo_take/undo_put move it to and from a per-tab UndoState. */
 static OpList undo_list;
 static OpList redo_list;
 static int break_next = 1;   /* next record starts a new undo step */
@@ -266,4 +245,30 @@ void undo_clear(void) {
     list_clear(&undo_list);
     list_clear(&redo_list);
     break_next = 1;
+}
+
+/* ---- Per-tab state ---- */
+
+void undo_take(UndoState *s) {
+    s->undo = undo_list;
+    s->redo = redo_list;
+    s->break_next = break_next;
+    undo_list.ops = redo_list.ops = NULL;
+    undo_list.count = undo_list.cap = 0;
+    redo_list.count = redo_list.cap = 0;
+    break_next = 1;
+}
+
+void undo_put(UndoState *s) {
+    undo_clear();
+    undo_list = s->undo;
+    redo_list = s->redo;
+    break_next = s->break_next;
+    memset(s, 0, sizeof *s);
+    s->break_next = 1;
+}
+
+void undo_state_free(UndoState *s) {
+    list_clear(&s->undo);
+    list_clear(&s->redo);
 }

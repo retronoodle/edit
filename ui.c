@@ -14,6 +14,7 @@
 #include "utf8.h"
 #include "menu.h"
 #include "options.h"
+#include "tabs.h"
 #include "ui.h"
 
 void draw_status_line() {
@@ -202,15 +203,44 @@ static void draw_row(int file_line, int has_sel, int sy1, int sx1, int sy2, int 
     while (out < tw) { fb_write(" ", 1); out++; }
 }
 
+/* Tab bar on row TAB_ROW: the active tab in reverse video. */
+static void draw_tab_bar(void) {
+    int first, end, x = 0;
+    char label[64];
+    tab_bar_range(&first, &end);
+
+    fb_gotoxy(0, TAB_ROW);
+    for (int i = first; i < end; i++) {
+        int n = tab_bar_label(i, label, sizeof(label));
+        int w = utf8_width(label, n);
+        if (x + w > screen_w) break;
+        int active = (i == tab_current());
+        if (active) fb_puts("\x1b[7m");
+        fb_write(label, n);
+        if (active) fb_puts(options_base_sgr());
+        x += w;
+    }
+    while (x < screen_w) {
+        fb_write(" ", 1);
+        x++;
+    }
+}
+
 void draw_editor_area() {
     int has_sel, sy1 = 0, sx1 = 0, sy2 = 0, sx2 = 0;
     has_sel = sel_range(&sy1, &sx1, &sy2, &sx2);
 
-    for (int screen_row = 1; screen_row < screen_h - 1; screen_row++) {
+    for (int screen_row = TEXT_TOP; screen_row <= screen_h - 3; screen_row++) {
         fb_gotoxy(0, screen_row);
-        int file_line = screen_row - 1 + editor.scroll_y;
+        int file_line = screen_row - TEXT_TOP + editor.scroll_y;
         draw_row(file_line, has_sel, sy1, sx1, sy2, sx2);
     }
+
+    /* Message row: left blank here; messages are printed over it */
+    char blank[screen_w];
+    memset(blank, ' ', screen_w - 1);
+    fb_gotoxy(0, screen_h - 2);
+    fb_write(blank, screen_w - 1);
 }
 
 void refresh_screen() {
@@ -219,6 +249,7 @@ void refresh_screen() {
     fb_puts(options_base_sgr());
 
     draw_menu_bar();
+    draw_tab_bar();
     draw_editor_area();
     draw_dropdown();
     draw_status_line();
@@ -228,7 +259,7 @@ void refresh_screen() {
 
     Line *cur = &editor.lines[editor.cursor_y];
     int screen_x = utf8_col(cur->text, cur->len, editor.cursor_x) - editor.scroll_x + gutter_w();
-    int screen_y = editor.cursor_y - editor.scroll_y + 1;
+    int screen_y = editor.cursor_y - editor.scroll_y + TEXT_TOP;
     fb_gotoxy(screen_x, screen_y);
     fb_puts("\x1b[?25h");   // show cursor
 
@@ -314,16 +345,18 @@ void show_help(void) {
     printf("  Alt+O           - Open Options menu\n");
     printf("  Arrow Keys      - Navigate menus\n");
     printf("  Enter           - Select menu item\n");
-    printf("  N/O/S/A/X       - Pick File menu item (New/Open/Save/Save As/Exit)\n");
+    printf("  N/O/S/A/W/T/V/X - Pick File menu item (New/Open/Save/Save As/Close Tab/Next/Previous/Exit)\n");
     printf("  F/N/R/G         - Pick Search menu item (Find/Find Next/Replace/Go to Line)\n");
     printf("  U/R/X/C/P/A     - Pick Edit menu item (Undo/Redo/Cut/Copy/Paste/Select All)\n");
     printf("  T/L/C           - Options: tab width / line endings / colors (menu stays open)\n");
     printf("  Open (O)        - Browse folders (Enter=open, T=type a name)\n");
     printf("  ESC             - Close menu\n\n");
     printf("Keyboard Shortcuts:\n");
-    printf("  Ctrl+N          - New file\n");
-    printf("  Ctrl+O          - Open file\n");
+    printf("  Ctrl+N          - New tab\n");
+    printf("  Ctrl+O          - Open file (in a new tab)\n");
     printf("  Ctrl+S          - Save file\n");
+    printf("  Ctrl+W          - Close tab\n");
+    printf("  F6 / F7         - Next / previous tab (or click a tab)\n");
     printf("  Ctrl+Z / Ctrl+Y - Undo / Redo\n");
     printf("  Ctrl+X/C/V      - Cut / Copy / Paste\n");
     printf("  Ctrl+A          - Select all\n");

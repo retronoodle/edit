@@ -8,12 +8,14 @@
 #include "term.h"
 #include "ui.h"
 #include "utf8.h"
+#include "tabs.h"
 #include "mouse.h"
 
 /* True while a left-button drag that started in the text area is in progress. */
 static int dragging = 0;
 
-/* Text rows are 1 .. screen_h-3. Row 0 is the menu bar; the last two are the message and status rows. */
+/* Text rows are TEXT_TOP .. screen_h-3. Row 0 is the menu bar, TAB_ROW the tab bar;
+   the last two are the message and status rows. */
 static int text_bottom(void) {
     return screen_h - 3;
 }
@@ -21,7 +23,7 @@ static int text_bottom(void) {
 /* Puts the cursor at the character under cell (x, y). Rows outside the text area
    map to the lines just above or below the view, so dragging past an edge scrolls. */
 static void cursor_to_cell(int x, int y) {
-    int line = editor.scroll_y + (y - 1);
+    int line = editor.scroll_y + (y - TEXT_TOP);
     if (line < 0) line = 0;
     if (line > editor.line_count - 1) line = editor.line_count - 1;
 
@@ -47,7 +49,7 @@ static void scroll_by(int rows) {
     if (editor.scroll_y > max_line) editor.scroll_y = max_line;
 
     int top = editor.scroll_y;
-    int bottom = editor.scroll_y + text_bottom() - 1;
+    int bottom = editor.scroll_y + TEXT_ROWS - 1;
     if (bottom > max_line) bottom = max_line;
 
     if (editor.cursor_y < top) editor.cursor_y = top;
@@ -110,9 +112,17 @@ int mouse_handle(const MouseEvent *ev) {
     /* With a menu open, other mouse input is ignored */
     if (editor.menu_active) return ACT_NONE;
 
+    /* A click on the tab bar switches to that tab */
+    if (ev->kind == MEV_PRESS && ev->y == TAB_ROW) {
+        dragging = 0;
+        int i = tab_bar_hit(ev->x);
+        if (i >= 0) tab_switch(i);
+        return ACT_NONE;
+    }
+
     switch (ev->kind) {
         case MEV_PRESS:
-            if (ev->y < 1 || ev->y > text_bottom()) return ACT_NONE;   /* message or status row */
+            if (ev->y < TEXT_TOP || ev->y > text_bottom()) return ACT_NONE;   /* message or status row */
             if (ev->shift) sel_extend();     /* Shift+click extends from the old cursor */
             else sel_clear();
             cursor_to_cell(ev->x, ev->y);

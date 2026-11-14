@@ -44,9 +44,12 @@ What the editor needs to move from a DOS-style toy to something that feels curre
 - ~~**Mouse support**~~ (done): click places the cursor, drag selects, Shift+click extends, wheel scrolls 3 rows, and clicks open and pick menu items. Lives in `mouse.c`; terminal reporting in `term.c`.
   - Limits: left button only, no double-click word select. Windows console QuickEdit is turned off while the editor runs (restored on exit), so console text can't be selected by mouse.
 - ~~**Line numbers**~~ (done): Options > Line numbers shows dim numbers in a left gutter. The gutter is at least 3 digits and widens as the file grows. Lives in `ui.c` (`gutter_w`, `text_w`).
-- **Multiple file support**: tabs or buffers for editing several files.
+- ~~**Multiple file support**~~ (done): tabs. Each open file is a tab on row 1. Command-line files each get a tab. New tab (Ctrl+N), Open (Ctrl+O; a file already open just gets its tab selected), Close Tab (Ctrl+W), next/previous tab (F6/F7 or click the tab). Undo, cursor, selection and line endings are per tab. Exit asks about each modified tab. Lives in `tabs.c`.
+  - Limits: 16 tabs at most; the tab bar scrolls to keep the active tab visible but shows no overflow marker; crash-recovery restore at startup only offers the first tab; a tab label is cut to 20 characters; two tabs can end up on the same file if you Save As onto a name open in another tab.
 - **Better file operations**: recent files, file browser, save-as dialog.
 - **Syntax highlighting**: at least basic keyword and comment coloring.
+- **Statusline** current dir, current branch (if any) line and col # 
+
 
 ## Nice to Have (Polish)
 

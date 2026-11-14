@@ -21,6 +21,7 @@
 #include "files.h"
 #include "undo.h"
 #include "recovery.h"
+#include "tabs.h"
 
 /* ---- File operations. Each returns 1 on success, 0 if cancelled/failed. ---- */
 
@@ -38,7 +39,7 @@ static int write_file(const char *name) {
     }
     fclose(file);
     editor.modified = 0;
-    recovery_discard();   /* the backup is stale now that the file is saved */
+    recovery_discard_name(name);   /* the backup is stale now that the file is saved */
 
     char msg[320];   /* room for "Saved " plus a full file name */
     snprintf(msg, sizeof(msg), "Saved %s", name);
@@ -49,22 +50,25 @@ static int write_file(const char *name) {
 int do_save_as(void);
 
 int do_save(void) {
-    if (strlen(editor.filename) == 0 || strcmp(editor.filename, "untitled.txt") == 0) {
+    if (!tab_named(tab_current())) {
         return do_save_as();
     }
     return write_file(editor.filename);
 }
 
 int do_save_as(void) {
-    char name[256];
+    char name[256], old[256];
     if (!prompt_line("Save as: ", name, sizeof(name))) return 0;
+    snprintf(old, sizeof(old), "%s", editor.filename);
     if (!write_file(name)) return 0;
     strcpy(editor.filename, name);
+    tab_mark_named();
+    if (strcmp(old, name) != 0) recovery_discard_name(old);   /* old name's backup is stale */
     return 1;
 }
 
-/* Asks to save unsaved changes. Returns 1 to go ahead (saved or discarded),
-   0 if the user cancelled with Esc or the save failed. */
+/* Asks to save unsaved changes in the active tab. Returns 1 to go ahead (saved
+   or discarded), 0 if the user cancelled with Esc or the save failed. */
 static int confirm_discard(void) {
     if (!editor.modified) return 1;
 
@@ -76,7 +80,8 @@ static int confirm_discard(void) {
         int c = getch_cp();
         if (c == 'y' || c == 'Y') return do_save();
         if (c == 'n' || c == 'N') {
-            recovery_discard();   /* changes are being thrown away */
+            recovery_discard_name(editor.filename);   /* changes are being thrown away */
+            editor.modified = 0;
             return 1;
         }
         if (c == 27) return 0;
@@ -84,9 +89,18 @@ static int confirm_discard(void) {
 }
 
 int do_new(void) {
+    if (!tab_new()) {
+        show_message("Too many tabs (16 at most).");
+        return 0;
+    }
+    return 1;
+}
+
+/* Closes the active tab, asking first if it has unsaved changes. */
+int do_close_tab(void) {
     if (!confirm_discard()) return 0;
-    strcpy(editor.filename, "untitled.txt");
-    reset_document();
+    recovery_discard_name(editor.filename);
+    tab_close_current();
     return 1;
 }
 
@@ -295,32 +309,57 @@ void load_stream(FILE *in) {
     editor.scroll_y = 0;
 }
 
-int do_open(void) {
-    char name[256];
-    if (!browse_for_file(name, sizeof(name))) return 0;
+/* Opens a file in a tab. A file that is already open just gets its tab
+   selected. The file goes into the active tab if that is an empty untitled
+   one, otherwise into a new tab. With create_missing, a name that does not
+   exist yet opens as an empty file (used for command-line names). */
+int open_path(const char *name, int create_missing) {
+    int i = tab_find(name);
+    if (i >= 0) {
+        tab_switch(i);
+        return 1;
+    }
 
     /* Binary mode keeps CR so the line ending style can be detected */
     FILE *in = fopen(name, "rb");
-    if (!in) {
+    if (!in && !create_missing) {
         show_message("File not found.");
         return 0;
     }
 
-    // Only discard the current document once we know the new file opens
-    if (!confirm_discard()) {
-        fclose(in);
+    if (!tab_is_blank() && !tab_new()) {
+        if (in) fclose(in);
+        show_message("Too many tabs (16 at most).");
         return 0;
     }
 
-    load_stream(in);
-    fclose(in);
+    options.crlf = 0;   /* a file's own line ending is detected below, else LF */
+    if (in) {
+        load_stream(in);
+        fclose(in);
+    } else {
+        reset_document();
+    }
 
     strcpy(editor.filename, name);
+    tab_mark_named();
     editor.modified = 0;
     return 1;
 }
 
-/* Returns 1 if the editor should quit. */
+int do_open(void) {
+    char name[256];
+    if (!browse_for_file(name, sizeof(name))) return 0;
+    return open_path(name, 0);
+}
+
+/* Returns 1 if the editor should quit. Asks about each modified tab in turn;
+   Esc at any prompt keeps the editor open. */
 int do_exit(void) {
-    return confirm_discard();
+    int i;
+    while ((i = tabs_first_modified()) >= 0) {
+        tab_switch(i);
+        if (!confirm_discard()) return 0;
+    }
+    return 1;
 }
