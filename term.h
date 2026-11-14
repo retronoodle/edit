@@ -65,7 +65,9 @@ void set_line_wrap(int enable);
 #define KEY_ALT_E (KEY_BASE + 1302)
 #define KEY_ALT_S (KEY_BASE + 1303)
 #define KEY_ALT_O (KEY_BASE + 1304)
+#define KEY_RESIZE (KEY_BASE + 1400)   /* the console window changed size */
 
 int read_key(void);
+void term_update_size(void);           /* sets screen_w/screen_h from the console */
 
 #endif

@@ -60,8 +60,8 @@ static void select_match(int y, int x) {
 /* Redraws with the current match shown, then asks Y/N/A. Returns 'y', 'n', 'a' or 27 (Esc). */
 static int ask_replace(void) {
     refresh_screen();
-    gotoxy(0, SCREEN_HEIGHT - 2);
-    printf("%-79s", "Replace? (Y)es  (N)o  (A)ll  (Esc)");
+    gotoxy(0, screen_h - 2);
+    printf("%-*s", screen_w - 1, "Replace? (Y)es  (N)o  (A)ll  (Esc)");
     fflush(stdout);
 
     for (;;) {

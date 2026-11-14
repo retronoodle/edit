@@ -108,14 +108,14 @@ void adjust_scroll() {
 
     if (cx < editor.scroll_x) {
         editor.scroll_x = cx;
-    } else if (cx >= editor.scroll_x + SCREEN_WIDTH) {
-        editor.scroll_x = cx - SCREEN_WIDTH + 1;
+    } else if (cx >= editor.scroll_x + screen_w) {
+        editor.scroll_x = cx - screen_w + 1;
     }
 
     if (editor.cursor_y < editor.scroll_y) {
         editor.scroll_y = editor.cursor_y;
-    } else if (editor.cursor_y >= editor.scroll_y + SCREEN_HEIGHT - 2) {
-        editor.scroll_y = editor.cursor_y - SCREEN_HEIGHT + 3;
+    } else if (editor.cursor_y >= editor.scroll_y + screen_h - 2) {
+        editor.scroll_y = editor.cursor_y - screen_h + 3;
     }
 }
 

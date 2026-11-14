@@ -38,7 +38,7 @@ static int write_file(const char *name) {
     fclose(file);
     editor.modified = 0;
 
-    char msg[SCREEN_WIDTH];
+    char msg[320];   /* room for "Saved " plus a full file name */
     snprintf(msg, sizeof(msg), "Saved %s", name);
     show_message(msg);
     return 1;
@@ -66,8 +66,8 @@ int do_save_as(void) {
 static int confirm_discard(void) {
     if (!editor.modified) return 1;
 
-    gotoxy(0, SCREEN_HEIGHT - 2);
-    printf("%-79s", "Save changes? (Y)es / (N)o / Esc = cancel");
+    gotoxy(0, screen_h - 2);
+    printf("%-*s", screen_w - 1, "Save changes? (Y)es / (N)o / Esc = cancel");
     fflush(stdout);
 
     while (1) {
@@ -88,7 +88,10 @@ int do_new(void) {
 /* ---- File browser (used by Open) ---- */
 
 #define MAX_DIR_ENTRIES 512
-#define BROWSER_ROWS 20          /* list rows on screen rows 2..21 */
+/* List rows sit between the "Open:" line (row 1) and the two footer rows. */
+static int browser_rows(void) {
+    return screen_h - 5;
+}
 
 typedef struct {
     char name[256];
@@ -165,7 +168,7 @@ static int change_dir(const char *path) {
 
 static void draw_browser(int sel, int top) {
     char cwd[512];
-    char line[512];   /* large enough for any path; fb_printf clips to 79 cols */
+    char line[512];   /* large enough for any path; fb_printf clips to the screen width */
     current_dir(cwd, sizeof(cwd));
 
     fb_reset();
@@ -173,9 +176,9 @@ static void draw_browser(int sel, int top) {
 
     snprintf(line, sizeof(line), " Open: %s", cwd);
     fb_gotoxy(0, 1);
-    fb_printf("\x1b[7m%-79.79s%s", line, options_base_sgr());
+    fb_printf("\x1b[7m%-*.*s%s", screen_w - 1, screen_w - 1, line, options_base_sgr());
 
-    for (int row = 0; row < BROWSER_ROWS; row++) {
+    for (int row = 0; row < browser_rows(); row++) {
         int idx = top + row;
         fb_gotoxy(0, 2 + row);
         if (idx < dir_count) {
@@ -184,17 +187,17 @@ static void draw_browser(int sel, int top) {
             snprintf(line, sizeof(line), "  %s%s",
                      dir_entries[idx].is_dir ? "[DIR] " : "      ",
                      dir_entries[idx].name);
-            fb_printf("%-79.79s", line);
+            fb_printf("%-*.*s", screen_w - 1, screen_w - 1, line);
             if (hl) fb_puts(options_base_sgr());
         } else {
-            fb_printf("%-79s", "");
+            fb_printf("%-*s", screen_w - 1, "");
         }
     }
 
-    fb_gotoxy(0, 22);
-    fb_printf("\x1b[7m%-79s%s", " Enter=open  Esc=cancel  T=type name  Up/Down=move", options_base_sgr());
-    fb_gotoxy(0, 23);
-    fb_printf("%-79s", "");
+    fb_gotoxy(0, screen_h - 3);
+    fb_printf("\x1b[7m%-*s%s", screen_w - 1, " Enter=open  Esc=cancel  T=type name  Up/Down=move", options_base_sgr());
+    fb_gotoxy(0, screen_h - 2);
+    fb_printf("%-*s", screen_w - 1, "");
 
     fb_flush();
 }
@@ -208,7 +211,7 @@ static int browse_for_file(char *out, size_t size) {
 
     while (1) {
         if (sel < top) top = sel;
-        if (sel >= top + BROWSER_ROWS) top = sel - BROWSER_ROWS + 1;
+        if (sel >= top + browser_rows()) top = sel - browser_rows() + 1;
         draw_browser(sel, top);
 
         int key = read_key();
@@ -218,6 +221,10 @@ static int browse_for_file(char *out, size_t size) {
                 break;
             case KEY_DOWN:
                 if (sel < dir_count - 1) sel++;
+                break;
+            case KEY_RESIZE:
+                term_update_size();
+                clear_screen();
                 break;
             case KEY_ESC:
                 return 0;

@@ -1,4 +1,8 @@
 /* Terminal layer: frame buffer, console/raw mode and key input. */
+#ifndef _WIN32
+    #define _POSIX_C_SOURCE 200809L   /* sigaction, SIGWINCH under -std=c99 */
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,27 +17,46 @@
 #else
     #include <termios.h>
     #include <unistd.h>
+    #include <signal.h>
+    #include <sys/ioctl.h>
 #endif
 
+#include "editor.h"
 #include "term.h"
 #include "utf8.h"
 
+/* Screen size in cells. Set by term_update_size(). */
+int screen_w = SCREEN_DEFAULT_W;
+int screen_h = SCREEN_DEFAULT_H;
+
 /* Frame buffer: all screen output is built here and written in one go,
-   so the terminal never shows a half-drawn frame (fixes flicker). */
-#define FRAME_SIZE 16384
-static char frame_buf[FRAME_SIZE];
+   so the terminal never shows a half-drawn frame (fixes flicker).
+   It grows as needed, since a large window can need more than a few KB. */
+#define FRAME_INIT 16384
+static char *frame_buf = NULL;
 static int frame_len = 0;
+static int frame_cap = 0;
+
+/* Makes room for `extra` more bytes. Returns 0 if out of memory. */
+static int fb_reserve(int extra) {
+    if (extra <= frame_cap - frame_len) return 1;
+    int cap = frame_cap ? frame_cap : FRAME_INIT;
+    while (cap - frame_len < extra) cap *= 2;
+    char *p = realloc(frame_buf, cap);
+    if (!p) return 0;
+    frame_buf = p;
+    frame_cap = cap;
+    return 1;
+}
 
 void fb_reset(void) {
     frame_len = 0;
 }
 
 void fb_write(const char *s, int n) {
-    if (n > FRAME_SIZE - frame_len) n = FRAME_SIZE - frame_len;
-    if (n > 0) {
-        memcpy(frame_buf + frame_len, s, n);
-        frame_len += n;
-    }
+    if (n <= 0 || !fb_reserve(n)) return;
+    memcpy(frame_buf + frame_len, s, n);
+    frame_len += n;
 }
 
 void fb_puts(const char *s) {
@@ -43,12 +66,13 @@ void fb_puts(const char *s) {
 void fb_printf(const char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
-    int room = FRAME_SIZE - frame_len;
-    if (room > 1) {
-        int n = vsnprintf(frame_buf + frame_len, room, fmt, ap);
-        if (n > 0) frame_len += (n < room) ? n : room - 1;
-    }
+    int n = vsnprintf(NULL, 0, fmt, ap);
     va_end(ap);
+    if (n <= 0 || !fb_reserve(n + 1)) return;
+    va_start(ap, fmt);
+    vsnprintf(frame_buf + frame_len, n + 1, fmt, ap);
+    va_end(ap);
+    frame_len += n;
 }
 
 void fb_gotoxy(int x, int y) {
@@ -57,10 +81,8 @@ void fb_gotoxy(int x, int y) {
 
 #ifdef _WIN32
 void gotoxy(int x, int y) {
-    COORD coord;
-    coord.X = x;
-    coord.Y = y;
-    SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), coord);
+    /* VT sequence: relative to the visible window, so it stays right if the window is scrolled */
+    printf("\x1b[%d;%dH", y + 1, x + 1);
 }
 
 void clear_screen() {
@@ -87,6 +109,8 @@ static UINT g_orig_cp = 0;
 static int g_cp_changed = 0;
 static int pending_high = 0;   /* UTF-16 high surrogate waiting for its pair */
 
+#define RESIZE_CH (-2)   /* pseudo-character: the console window was resized */
+
 /* Blocks until a key-down event. Returns the UTF-16 unit or code point in *ch
    (0 for keys with no character), the virtual-key code in *vk, and the
    control-key state in *ctrl. */
@@ -99,6 +123,12 @@ static void next_key_event(int *vk, int *ch, DWORD *ctrl) {
             exit(1);
         }
         if (n == 0) continue;
+        if (rec.EventType == WINDOW_BUFFER_SIZE_EVENT) {
+            *vk = 0;
+            *ch = RESIZE_CH;
+            *ctrl = 0;
+            return;
+        }
         if (rec.EventType != KEY_EVENT || !rec.Event.KeyEvent.bKeyDown) continue;
 
         int u = rec.Event.KeyEvent.uChar.UnicodeChar;
@@ -135,7 +165,8 @@ void configure_console() {
     g_in = GetStdHandle(STD_INPUT_HANDLE);
     if (g_in != INVALID_HANDLE_VALUE && GetConsoleMode(g_in, &g_orig_in_mode)) {
         /* Raw-ish input: Ctrl+C arrives as a key, not a signal; no line editing or echo */
-        SetConsoleMode(g_in, g_orig_in_mode & ~(ENABLE_PROCESSED_INPUT | ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT));
+        /* ENABLE_WINDOW_INPUT reports window resizes as events */
+        SetConsoleMode(g_in, (g_orig_in_mode & ~(ENABLE_PROCESSED_INPUT | ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT)) | ENABLE_WINDOW_INPUT);
     }
 
     g_orig_cp = GetConsoleOutputCP();
@@ -170,6 +201,14 @@ void restore_console() {
 #else
 struct termios orig_termios;
 
+/* Set by SIGWINCH when the terminal is resized; read_key() reports it. */
+static volatile sig_atomic_t g_winch = 0;
+
+static void on_winch(int sig) {
+    (void)sig;
+    g_winch = 1;
+}
+
 void disable_raw_mode() {
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
 }
@@ -177,6 +216,12 @@ void disable_raw_mode() {
 void enable_raw_mode() {
     tcgetattr(STDIN_FILENO, &orig_termios);
     atexit(disable_raw_mode);
+
+    struct sigaction sa;
+    memset(&sa, 0, sizeof sa);
+    sa.sa_handler = on_winch;
+    sa.sa_flags = SA_RESTART;   /* keep reads going across the signal */
+    sigaction(SIGWINCH, &sa, NULL);
 
     struct termios raw = orig_termios;
     raw.c_lflag &= ~(ECHO | ICANON | ISIG | IEXTEN);
@@ -259,6 +304,7 @@ int read_key() {
     int vk, ch;
     DWORD ctrl;
     next_key_event(&vk, &ch, &ctrl);
+    if (ch == RESIZE_CH) return KEY_RESIZE;
     int shift = (ctrl & SHIFT_PRESSED) != 0;
     int alt = (ctrl & LEFT_ALT_PRESSED) != 0;
 
@@ -311,6 +357,10 @@ int read_key() {
 }
 #else
 int read_key() {
+    if (g_winch) {            /* resized since the last key: report it first */
+        g_winch = 0;
+        return KEY_RESIZE;
+    }
     int ch = getch_impl(); // getchar() in POSIX branch
     if (ch == EOF) return -1;
 
@@ -444,6 +494,33 @@ int read_key() {
 
 /* Sends the whole frame to the terminal in one write. */
 void fb_flush(void) {
-    fwrite(frame_buf, 1, frame_len, stdout);
+    if (frame_len > 0) fwrite(frame_buf, 1, frame_len, stdout);
     fflush(stdout);
+}
+
+/* Reads the console window size into screen_w/screen_h. Falls back to 80x25
+   when the size is unknown, and never goes below the minimum. */
+void term_update_size(void) {
+    int w = 0, h = 0;
+#ifdef _WIN32
+    CONSOLE_SCREEN_BUFFER_INFO info;
+    if (GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &info)) {
+        w = info.srWindow.Right - info.srWindow.Left + 1;
+        h = info.srWindow.Bottom - info.srWindow.Top + 1;
+    }
+#else
+    struct winsize ws;
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0) {
+        w = ws.ws_col;
+        h = ws.ws_row;
+    }
+#endif
+    if (w <= 0 || h <= 0) {
+        w = SCREEN_DEFAULT_W;
+        h = SCREEN_DEFAULT_H;
+    }
+    if (w < SCREEN_MIN_W) w = SCREEN_MIN_W;
+    if (h < SCREEN_MIN_H) h = SCREEN_MIN_H;
+    screen_w = w;
+    screen_h = h;
 }

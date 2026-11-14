@@ -32,8 +32,8 @@ What the editor needs to move from a DOS-style toy to something that feels curre
 ### 7. Line wrapping or horizontal scrolling
 - Currently limited to the visible width.
 
-### 8. Resize-aware layout
-- Screen is fixed at 80x25. Read the real console size and adjust on resize.
+### 8. ~~Resize-aware layout~~ (done)
+- The size is read at startup and on window resize (`term_update_size` in `term.c`). Drawing, scrolling, prompts and the file browser all use it. Minimum 40x10; smaller windows are laid out as 40x10. The frame buffer grows to fit.
 
 ### 9. Auto-save and crash recovery
 - Write a periodic backup file so unsaved work survives a crash.

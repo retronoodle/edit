@@ -2,8 +2,13 @@
 #ifndef EDITOR_H
 #define EDITOR_H
 
-#define SCREEN_WIDTH 80
-#define SCREEN_HEIGHT 25
+/* Console size in cells. Read at startup and on resize (term_update_size). */
+#define SCREEN_DEFAULT_W 80
+#define SCREEN_DEFAULT_H 25
+#define SCREEN_MIN_W 40
+#define SCREEN_MIN_H 10
+extern int screen_w;
+extern int screen_h;
 
 typedef struct {
     char *text;     /* always NUL-terminated */

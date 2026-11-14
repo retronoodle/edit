@@ -76,6 +76,7 @@ int main(int argc, char *argv[]) {
 #else
     set_line_wrap(0);
 #endif
+    term_update_size();
     clear_screen();
     set_cursor_visibility(1);
 
@@ -88,6 +89,12 @@ int main(int argc, char *argv[]) {
 
         int key = read_key();
         if (key == -1) {
+            continue;
+        }
+        if (key == KEY_RESIZE) {    /* window changed size: re-read it and redraw all */
+            term_update_size();
+            clear_screen();
+            needs_redraw = 1;
             continue;
         }
         needs_redraw = 1;

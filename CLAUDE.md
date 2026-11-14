@@ -65,10 +65,11 @@ This fixes cross-platform issues like:
 
 ### Screen Layout
 
-Fixed 80x25 character screen:
+Screen size comes from the console and follows window resizes (`term_update_size()` sets `screen_w`/`screen_h`; 80x25 is the fallback, 40x10 the minimum). Rows are relative to `screen_h`:
 - Line 0: Menu bar showing "File Edit Search Options" (all four are working dropdowns)
-- Lines 1-23: Editable text area (23 visible lines)
-- Line 24: Status line with function key hints, cursor position, mode (INS/OVR), modified flag (*), filename
+- Lines 1 to screen_h-2: Editable text area (the message/prompt row is drawn over the last one)
+- Line screen_h-2: Message and prompt row
+- Line screen_h-1: Status line with function key hints, cursor position, mode (INS/OVR), modified flag (*), filename
 
 ### Main Loop
 

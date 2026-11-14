@@ -17,9 +17,9 @@
 #include "ui.h"
 
 void draw_status_line() {
-    char buf[SCREEN_WIDTH + 1];
-    memset(buf, ' ', SCREEN_WIDTH);
-    buf[SCREEN_WIDTH] = '\0';
+    char buf[screen_w + 1];
+    memset(buf, ' ', screen_w);
+    buf[screen_w] = '\0';
 
     char left[256];
     Line *cur = &editor.lines[editor.cursor_y];
@@ -30,33 +30,33 @@ void draw_status_line() {
              editor.modified ? "*" : "");
 
     int left_len = (int)strlen(left);
-    if (left_len > SCREEN_WIDTH) left_len = SCREEN_WIDTH;
+    if (left_len > screen_w) left_len = screen_w;
     memcpy(buf, left, left_len);
 
     int fname_only_len = (int)strlen(editor.filename);
     int fname_len_with_space = fname_only_len + 1;
-    if (fname_len_with_space > SCREEN_WIDTH) fname_len_with_space = SCREEN_WIDTH;
-    int start = SCREEN_WIDTH - fname_len_with_space;
+    if (fname_len_with_space > screen_w) fname_len_with_space = screen_w;
+    int start = screen_w - fname_len_with_space;
     if (start < 0) start = 0;
 
-    if (start < SCREEN_WIDTH) {
+    if (start < screen_w) {
         buf[start] = ' ';
-        int copy = SCREEN_WIDTH - start - 1;
+        int copy = screen_w - start - 1;
         if (copy > fname_only_len) copy = fname_only_len;
         memcpy(&buf[start + 1], editor.filename, copy);
     }
 
-    fb_gotoxy(0, SCREEN_HEIGHT - 1);
-    fb_write(buf, SCREEN_WIDTH);
+    fb_gotoxy(0, screen_h - 1);
+    fb_write(buf, screen_w);
 }
 
 void draw_menu_bar() {
     fb_gotoxy(0, 0);
 
     // Draw entire menu bar with spaces
-    char blank[SCREEN_WIDTH];
-    memset(blank, ' ', SCREEN_WIDTH);
-    fb_write(blank, SCREEN_WIDTH);
+    char blank[screen_w];
+    memset(blank, ' ', screen_w);
+    fb_write(blank, screen_w);
 
     // Draw each menu title
     for (int i = 0; i < MENU_COUNT; i++) {
@@ -71,7 +71,7 @@ void draw_menu_bar() {
     }
 
     // Draw "EDIT" on the right side
-    fb_gotoxy(SCREEN_WIDTH - 4, 0);
+    fb_gotoxy(screen_w - 4, 0);
     fb_puts("EDIT");
 }
 
@@ -99,7 +99,7 @@ void draw_dropdown() {
     int width = 1 + label_w + 2 + hint_w + 1;
 
     int x = m->x;
-    if (x + width > SCREEN_WIDTH) x = SCREEN_WIDTH - width;
+    if (x + width > screen_w) x = screen_w - width;
 
     for (int i = 0; i < m->count; i++) {
         const char *label = item_label(&m->items[i], buf, sizeof(buf));
@@ -122,7 +122,7 @@ static void draw_row(int file_line, int has_sel, int sy1, int sx1, int sy2, int 
     if (file_line < editor.line_count) {
         const Line *ln = &editor.lines[file_line];
         int pos = 0, col = 0;
-        int right = editor.scroll_x + SCREEN_WIDTH;
+        int right = editor.scroll_x + screen_w;
 
         while (pos < ln->len && col < right) {
             int nxt = utf8_next(ln->text, ln->len, pos);
@@ -161,14 +161,14 @@ static void draw_row(int file_line, int has_sel, int sy1, int sx1, int sy2, int 
     }
 
     if (hl) fb_puts(options_base_sgr());
-    while (out < SCREEN_WIDTH) { fb_write(" ", 1); out++; }
+    while (out < screen_w) { fb_write(" ", 1); out++; }
 }
 
 void draw_editor_area() {
     int has_sel, sy1 = 0, sx1 = 0, sy2 = 0, sx2 = 0;
     has_sel = sel_range(&sy1, &sx1, &sy2, &sx2);
 
-    for (int screen_row = 1; screen_row < SCREEN_HEIGHT - 1; screen_row++) {
+    for (int screen_row = 1; screen_row < screen_h - 1; screen_row++) {
         fb_gotoxy(0, screen_row);
         int file_line = screen_row - 1 + editor.scroll_y;
         draw_row(file_line, has_sel, sy1, sx1, sy2, sx2);
@@ -198,14 +198,12 @@ void refresh_screen() {
     fb_flush();
 }
 
-/* ---- Status messages and prompts (bottom row, SCREEN_HEIGHT-2) ---- */
+/* ---- Status messages and prompts (bottom row, screen_h-2) ---- */
 
 /* Shows a message briefly; the next redraw clears it. */
 void show_message(const char *msg) {
-    char line[SCREEN_WIDTH + 1];
-    snprintf(line, sizeof(line), "%-79s", msg);
-    gotoxy(0, SCREEN_HEIGHT - 2);
-    printf("%s", line);
+    gotoxy(0, screen_h - 2);
+    printf("%-*s", screen_w - 1, msg);
     fflush(stdout);
 #ifdef _WIN32
     Sleep(900);
@@ -221,9 +219,9 @@ int prompt_line_opt(const char *msg, char *buf, int size) {
     int len = 0;
     buf[0] = '\0';
 
-    gotoxy(0, SCREEN_HEIGHT - 2);
-    printf("%-79s", "");
-    gotoxy(0, SCREEN_HEIGHT - 2);
+    gotoxy(0, screen_h - 2);
+    printf("%-*s", screen_w - 1, "");
+    gotoxy(0, screen_h - 2);
     printf("%s", msg);
     fflush(stdout);
     set_cursor_visibility(1);
