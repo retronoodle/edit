@@ -504,6 +504,7 @@ void show_help(void) {
     printf("  Ctrl+F / F3     - Find / Find next\n");
     printf("  Ctrl+R          - Replace (Y/N/A=all, Esc=stop)\n");
     printf("  Ctrl+G          - Go to line\n");
+    printf("  Alt+G           - Git panel (status, commit, push)\n");
     printf("  Ctrl+Q          - Exit\n\n");
     printf("Editing:\n");
     printf("  Arrow Keys      - Move cursor\n");

@@ -1,8 +1,8 @@
 CC=gcc
 CFLAGS=-Wall -Wextra -std=c99
 TARGET=edit
-SOURCES=edit.c term.c buffer.c ui.c files.c undo.c clipboard.c search.c utf8.c menu.c options.c recovery.c mouse.c tabs.c recent.c syntax.c gitinfo.c
-HEADERS=editor.h term.h buffer.h ui.h files.h undo.h clipboard.h search.h utf8.h menu.h options.h recovery.h mouse.h tabs.h recent.h syntax.h gitinfo.h
+SOURCES=edit.c term.c buffer.c ui.c files.c undo.c clipboard.c search.c utf8.c menu.c options.c recovery.c mouse.c tabs.c recent.c syntax.c gitinfo.c gitmodal.c
+HEADERS=editor.h term.h buffer.h ui.h files.h undo.h clipboard.h search.h utf8.h menu.h options.h recovery.h mouse.h tabs.h recent.h syntax.h gitinfo.h gitmodal.h
 TEST=test_utf8
 TEST_SYNTAX=test_syntax
 

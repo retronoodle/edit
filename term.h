@@ -69,6 +69,7 @@ void set_line_wrap(int enable);
 #define KEY_ALT_E (KEY_BASE + 1302)
 #define KEY_ALT_S (KEY_BASE + 1303)
 #define KEY_ALT_O (KEY_BASE + 1304)
+#define KEY_ALT_G (KEY_BASE + 1305)
 #define KEY_RESIZE (KEY_BASE + 1400)   /* the console window changed size */
 #define KEY_MOUSE (KEY_BASE + 1401)    /* a mouse event; read it with term_get_mouse() */
 

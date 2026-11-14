@@ -18,6 +18,7 @@
 #include "mouse.h"
 #include "tabs.h"
 #include "recent.h"
+#include "gitmodal.h"
 
 #define IDLE_POLL_MS 1000   /* how often the main loop wakes when no key is pressed */
 
@@ -145,6 +146,7 @@ int main(int argc, char *argv[]) {
 
         // Normal editing mode
         switch (key) {
+            case KEY_ALT_G: git_modal(); break;
             case KEY_SHIFT_UP: sel_extend(); move_cursor(0, -1); break;
             case KEY_SHIFT_DOWN: sel_extend(); move_cursor(0, 1); break;
             case KEY_SHIFT_LEFT: sel_extend(); move_cursor(-1, 0); break;
