@@ -173,15 +173,20 @@ int getch_impl() {
 */
 
 #ifdef _WIN32
+/* True while a Shift key is held, so Shift+arrow can be told apart from arrow. */
+static int shift_held(void) {
+    return (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+}
+
 int read_key() {
     int ch = getch_impl();
     if (ch == 0 || ch == 224) {
         int ch2 = getch_impl();
         switch (ch2) {
-            case 72: return KEY_UP;
-            case 80: return KEY_DOWN;
-            case 75: return KEY_LEFT;
-            case 77: return KEY_RIGHT;
+            case 72: return shift_held() ? KEY_SHIFT_UP : KEY_UP;
+            case 80: return shift_held() ? KEY_SHIFT_DOWN : KEY_DOWN;
+            case 75: return shift_held() ? KEY_SHIFT_LEFT : KEY_LEFT;
+            case 77: return shift_held() ? KEY_SHIFT_RIGHT : KEY_RIGHT;
             case 59: return KEY_F1;
             case 60: return KEY_F2;
             case 61: return KEY_F3;
@@ -221,6 +226,9 @@ int read_key() {
             case 19: return KEY_CTRL_S;
             case 25: return KEY_CTRL_Y;
             case 26: return KEY_CTRL_Z;
+            case 3: return KEY_CTRL_C;
+            case 22: return KEY_CTRL_V;
+            case 24: return KEY_CTRL_X;
             default: return ch;
         }
     }
@@ -239,6 +247,9 @@ int read_key() {
     if (ch == 19) return KEY_CTRL_S;
     if (ch == 25) return KEY_CTRL_Y;
     if (ch == 26) return KEY_CTRL_Z;
+    if (ch == 3) return KEY_CTRL_C;
+    if (ch == 22) return KEY_CTRL_V;
+    if (ch == 24) return KEY_CTRL_X;
 
     if (ch != 27) { // Not an escape sequence
         return ch;
@@ -264,6 +275,20 @@ int read_key() {
                 if (c >= '0' && c <= '9') {
                     digits[idx++] = (char)c;
                 } else {
+                    if (c == ';') {
+                        /* Modified key, e.g. ESC[1;2A is Shift+Up */
+                        int m = getch_impl();
+                        int f = getch_impl();
+                        if (m == '2') {
+                            switch (f) {
+                                case 'A': return KEY_SHIFT_UP;
+                                case 'B': return KEY_SHIFT_DOWN;
+                                case 'C': return KEY_SHIFT_RIGHT;
+                                case 'D': return KEY_SHIFT_LEFT;
+                            }
+                        }
+                        return -1;
+                    }
                     if (c == '~') {
                         digits[idx] = '\0';
                         int num = atoi(digits);

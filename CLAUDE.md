@@ -21,6 +21,7 @@ This is a simple text editor written in C, similar to MS-DOS EDIT. It runs in th
 - `buffer.c/.h`: `Editor editor` definition, line storage, editing ops (`insert_char`, `backspace`, ...), `move_cursor`/`adjust_scroll`, `init_editor`
 - `ui.c/.h`: status line, menu bar, dropdown, editor area, `refresh_screen`, `show_message`, `prompt_line`, `show_help`
 - `files.c/.h`: save/save-as/new/open/exit and the folder browser
+- `clipboard.c/.h`: selection (Shift+arrows), internal clipboard, cut/copy/paste (Ctrl+X/C/V)
 - `undo.c/.h`: undo/redo operation log (`undo_record_*` called from buffer.c, `undo_undo`/`undo_redo`, Ctrl+Z/Ctrl+Y)
 - `edit.c`: `main`, main loop, key/menu dispatch
 
@@ -74,6 +75,6 @@ The main loop in `main()` (edit.c) reads a key and dispatches it: menu keys, the
 - Line storage grows on demand (`line_reserve`, `lines_reserve`, `insert_line_at`, `delete_line_at` in buffer.c); `reset_document()` clears the buffer
 - Build is `make` (compiles all `.c` files listed in the Makefile). Add new `.c` files to `SOURCES` and their headers to `HEADERS`
 - The file browser still caps listings at MAX_DIR_ENTRIES=512
-- No clipboard/copy-paste support
+- Clipboard is internal only (no system clipboard yet)
 - Tab key inserts 4 spaces
 - Files are always saved with Unix line endings (\n)

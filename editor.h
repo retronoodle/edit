@@ -24,6 +24,8 @@ typedef struct {
     int selected_menu;     // 0=File, 1=Edit, 2=Search, 3=Options
     int dropdown_open;
     int selected_item;
+    int sel_active;         /* selection anchor is (sel_x, sel_y); the cursor is the other end */
+    int sel_x, sel_y;
 } Editor;
 
 /* The document being edited. Defined in buffer.c. */

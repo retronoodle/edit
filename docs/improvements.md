@@ -10,9 +10,9 @@ What the editor needs to move from a DOS-style toy to something that feels curre
 ### 2. ~~Undo/redo~~ (done)
 - Ctrl+Z undoes, Ctrl+Y redoes. Typing and deleting runs merge into one step; cursor moves end a step. Lives in `undo.c`.
 
-### 3. Clipboard
-- Selection via Shift+arrows.
-- Cut/Copy/Paste on Ctrl+X/C/V. Internal clipboard first, system clipboard later.
+### 3. ~~Clipboard~~ (done, internal only)
+- Shift+arrows select (shown in reverse video). Ctrl+X/C/V cut/copy/paste; typing or Delete replaces a selection. Each cut, paste or replace is one undo step. Lives in `clipboard.c`.
+- Still open: system clipboard. Windows Terminal may take Ctrl+C/Ctrl+V for itself; if so, its paste arrives as typed text.
 
 ### 4. Search and replace
 - The Search menu is displayed but has no implementation.
@@ -57,5 +57,5 @@ What the editor needs to move from a DOS-style toy to something that feels curre
 ## Current Constraints
 
 - Files are always saved with Unix line endings (`\n`).
-- No clipboard or search exists yet.
+- No search exists yet. The clipboard is internal only.
 - Undo history has no depth limit and the modified flag is not save-point aware (undo after a save still shows `*`).

@@ -10,6 +10,7 @@
 
 #include "editor.h"
 #include "term.h"
+#include "clipboard.h"
 #include "ui.h"
 
 void draw_status_line() {
@@ -91,24 +92,40 @@ void draw_dropdown() {
 }
 
 void draw_editor_area() {
-    char row[SCREEN_WIDTH];
+    int has_sel, sy1 = 0, sx1 = 0, sy2 = 0, sx2 = 0;
+    has_sel = sel_range(&sy1, &sx1, &sy2, &sx2);
+
     for (int screen_row = 1; screen_row < SCREEN_HEIGHT - 1; screen_row++) {
         fb_gotoxy(0, screen_row);
 
         int file_line = screen_row - 1 + editor.scroll_y;
-
+        char *line = NULL;
+        int line_len = 0;
         if (file_line < editor.line_count) {
-            char *line = editor.lines[file_line].text;
-            int line_len = editor.lines[file_line].len;
-
-            for (int col = 0; col < SCREEN_WIDTH; col++) {
-                int file_col = col + editor.scroll_x;
-                row[col] = (file_col < line_len) ? line[file_col] : ' ';
-            }
-        } else {
-            memset(row, ' ', SCREEN_WIDTH);
+            line = editor.lines[file_line].text;
+            line_len = editor.lines[file_line].len;
         }
-        fb_write(row, SCREEN_WIDTH);
+
+        /* Selected text is drawn in reverse video. */
+        int highlighted = 0;
+        for (int col = 0; col < SCREEN_WIDTH; col++) {
+            int file_col = col + editor.scroll_x;
+            char ch = (line && file_col < line_len) ? line[file_col] : ' ';
+
+            int selected = 0;
+            if (has_sel && line && file_col < line_len &&
+                file_line >= sy1 && file_line <= sy2) {
+                int from = (file_line == sy1) ? sx1 : 0;
+                int to = (file_line == sy2) ? sx2 : line_len;
+                selected = file_col >= from && file_col < to;
+            }
+            if (selected != highlighted) {
+                fb_puts(selected ? "\x1b[7m" : "\x1b[0m");
+                highlighted = selected;
+            }
+            fb_write(&ch, 1);
+        }
+        if (highlighted) fb_puts("\x1b[0m");
     }
 }
 
@@ -207,9 +224,11 @@ void show_help(void) {
     printf("  Ctrl+O          - Open file\n");
     printf("  Ctrl+S          - Save file\n");
     printf("  Ctrl+Z / Ctrl+Y - Undo / Redo\n");
+    printf("  Ctrl+X/C/V      - Cut / Copy / Paste\n");
     printf("  Ctrl+Q          - Exit\n\n");
     printf("Editing:\n");
     printf("  Arrow Keys      - Move cursor\n");
+    printf("  Shift+Arrows    - Select text\n");
     printf("  Insert          - Toggle insert/overwrite mode\n");
     printf("  Delete          - Delete character\n");
     printf("  Backspace       - Backspace\n");

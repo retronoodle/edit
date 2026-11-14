@@ -84,6 +84,7 @@ void reset_document(void) {
     editor.scroll_x = 0;
     editor.scroll_y = 0;
     editor.modified = 0;
+    editor.sel_active = 0;
 }
 
 void init_editor() {
@@ -238,5 +239,69 @@ void insert_newline() {
 
     editor.cursor_y++;
     editor.cursor_x = 0;
+    editor.modified = 1;
+}
+
+/* ---- Multi-line range edits ---- */
+
+/* Deletes n chars at (y, x), recording them for undo. */
+static void del_text(int y, int x, int n, int cx, int cy) {
+    if (n <= 0) return;
+    undo_record_delete(y, x, editor.lines[y].text + x, n, cx, cy);
+    raw_delete_text(y, x, n);
+}
+
+/* Joins line y+1 onto line y, recording it for undo. */
+static void join_lines(int y, int cx, int cy) {
+    undo_record_join(y, editor.lines[y].len, cx, cy);
+    raw_join(y);
+}
+
+void delete_range(int y1, int x1, int y2, int x2) {
+    int cx = editor.cursor_x, cy = editor.cursor_y;
+
+    if (y1 == y2) {
+        del_text(y1, x1, x2 - x1, cx, cy);
+    } else {
+        /* Tail of the first line, then each middle line emptied and joined up,
+           then the head of the last line and a final join. */
+        del_text(y1, x1, editor.lines[y1].len - x1, cx, cy);
+        for (int k = y1 + 1; k < y2; k++) {
+            del_text(y1 + 1, 0, editor.lines[y1 + 1].len, cx, cy);
+            join_lines(y1, cx, cy);
+        }
+        del_text(y1 + 1, 0, x2, cx, cy);
+        join_lines(y1, cx, cy);
+    }
+
+    editor.cursor_x = x1;
+    editor.cursor_y = y1;
+    editor.modified = 1;
+}
+
+void insert_text(const char *s, int n) {
+    int cx = editor.cursor_x, cy = editor.cursor_y;
+    int y = cy, x = cx;
+    int i = 0;
+
+    while (i < n) {
+        if (s[i] == '\n') {
+            raw_split(y, x);
+            undo_record_split(y, x, cx, cy);
+            y++;
+            x = 0;
+            i++;
+            continue;
+        }
+        int start = i;
+        while (i < n && s[i] != '\n') i++;
+        int k = i - start;
+        raw_insert_text(y, x, s + start, k);
+        undo_record_insert(y, x, s + start, k, cx, cy);
+        x += k;
+    }
+
+    editor.cursor_x = x;
+    editor.cursor_y = y;
     editor.modified = 1;
 }

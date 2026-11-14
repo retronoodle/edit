@@ -32,6 +32,10 @@ void set_line_wrap(int enable);
 #define KEY_DOWN 1011
 #define KEY_LEFT 1012
 #define KEY_RIGHT 1013
+#define KEY_SHIFT_UP 1014
+#define KEY_SHIFT_DOWN 1015
+#define KEY_SHIFT_LEFT 1016
+#define KEY_SHIFT_RIGHT 1017
 #define KEY_INSERT 1020
 #define KEY_DELETE 1021
 #define KEY_F1 1101
@@ -46,6 +50,9 @@ void set_line_wrap(int enable);
 #define KEY_CTRL_Q 1204
 #define KEY_CTRL_Y 1205
 #define KEY_CTRL_Z 1206
+#define KEY_CTRL_C 1207
+#define KEY_CTRL_V 1208
+#define KEY_CTRL_X 1209
 #define KEY_ALT_F 1301
 #define KEY_ALT_E 1302
 #define KEY_ALT_S 1303
