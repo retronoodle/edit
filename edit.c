@@ -11,17 +11,19 @@
 #include "undo.h"
 #include "clipboard.h"
 #include "search.h"
+#include "utf8.h"
 
 static int needs_redraw = 1;
 
-/* Types text at the cursor. Over a selection, the selection is replaced in one undo step. */
+/* Types one character (n UTF-8 bytes) at the cursor. Over a selection, the
+   selection is replaced in one undo step. */
 static void type_chars(const char *s, int n) {
     if (sel_begin_replace()) {
         insert_text(s, n);
         undo_end_group();
         return;
     }
-    for (int i = 0; i < n; i++) insert_char(s[i]);
+    insert_utf8(s, n);
 }
 
 /* Runs a File menu item by index. Returns 1 if the editor should quit. */
@@ -223,13 +225,20 @@ int main(int argc, char *argv[]) {
                 else backspace();
                 break;
             case KEY_TAB:
-                type_chars("    ", 4);
+                if (sel_begin_replace()) {
+                    insert_text("    ", 4);
+                    undo_end_group();
+                } else {
+                    for (int i = 0; i < 4; i++) insert_utf8(" ", 1);
+                }
                 break;
 
             default:
-                if (key >= 32 && key <= 126) {
-                    char c = (char)key;
-                    type_chars(&c, 1);
+                /* Any printable Unicode character (not a control code, not a key code) */
+                if (key >= 32 && key != 127 && (key < 0x80 || key >= 0xA0) && key < KEY_BASE) {
+                    char buf[4];
+                    int n = utf8_encode(key, buf);
+                    type_chars(buf, n);
                 }
                 break;
         }

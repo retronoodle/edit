@@ -16,6 +16,7 @@
 #endif
 
 #include "term.h"
+#include "utf8.h"
 
 /* Frame buffer: all screen output is built here and written in one go,
    so the terminal never shows a half-drawn frame (fixes flicker). */
@@ -75,15 +76,72 @@ void set_cursor_visibility(int visible) {
 }
 
 int kbhit() {
-    return _kbhit();
+    return 0;   /* input is read as events; see next_key_event() */
 }
 
-int getch_impl() {
-    return _getch();
+/* Console input is read as UTF-16 events (ReadConsoleInputW), so typed
+   non-ASCII characters arrive intact. Key-down events only. */
+static HANDLE g_in = NULL;
+static DWORD g_orig_in_mode = 0;
+static UINT g_orig_cp = 0;
+static int g_cp_changed = 0;
+static int pending_high = 0;   /* UTF-16 high surrogate waiting for its pair */
+
+/* Blocks until a key-down event. Returns the UTF-16 unit or code point in *ch
+   (0 for keys with no character), the virtual-key code in *vk, and the
+   control-key state in *ctrl. */
+static void next_key_event(int *vk, int *ch, DWORD *ctrl) {
+    for (;;) {
+        INPUT_RECORD rec;
+        DWORD n = 0;
+        if (!ReadConsoleInputW(g_in, &rec, 1, &n)) {
+            /* Not a console (or the handle died): nothing to read, so stop cleanly */
+            exit(1);
+        }
+        if (n == 0) continue;
+        if (rec.EventType != KEY_EVENT || !rec.Event.KeyEvent.bKeyDown) continue;
+
+        int u = rec.Event.KeyEvent.uChar.UnicodeChar;
+        if (u >= 0xD800 && u <= 0xDBFF) {          /* high surrogate: wait for low */
+            pending_high = u;
+            continue;
+        }
+        if (u >= 0xDC00 && u <= 0xDFFF && pending_high) {
+            u = 0x10000 + ((pending_high - 0xD800) << 10) + (u - 0xDC00);
+            pending_high = 0;
+        } else {
+            pending_high = 0;
+        }
+        *vk = rec.Event.KeyEvent.wVirtualKeyCode;
+        *ch = u;
+        *ctrl = rec.Event.KeyEvent.dwControlKeyState;
+        return;
+    }
+}
+
+int getch_cp(void) {
+    int vk, ch;
+    DWORD ctrl;
+    next_key_event(&vk, &ch, &ctrl);
+    return ch;
+}
+
+int getch_impl(void) {
+    return getch_cp();
 }
 
 static DWORD g_orig_out_mode = 0;
 void configure_console() {
+    g_in = GetStdHandle(STD_INPUT_HANDLE);
+    if (g_in != INVALID_HANDLE_VALUE && GetConsoleMode(g_in, &g_orig_in_mode)) {
+        /* Raw-ish input: Ctrl+C arrives as a key, not a signal; no line editing or echo */
+        SetConsoleMode(g_in, g_orig_in_mode & ~(ENABLE_PROCESSED_INPUT | ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT));
+    }
+
+    g_orig_cp = GetConsoleOutputCP();
+    if (SetConsoleOutputCP(65001)) g_cp_changed = 1;   /* UTF-8 output */
+    atexit(restore_console);                           /* also covers the exit(1) above */
+
     HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
     if (hOut == INVALID_HANDLE_VALUE) return;
     if (!GetConsoleMode(hOut, &g_orig_out_mode)) return;
@@ -97,6 +155,11 @@ void configure_console() {
 }
 
 void restore_console() {
+    if (g_in && g_in != INVALID_HANDLE_VALUE && g_orig_in_mode) {
+        SetConsoleMode(g_in, g_orig_in_mode);
+    }
+    if (g_cp_changed) SetConsoleOutputCP(g_orig_cp);
+
     HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
     if (hOut == INVALID_HANDLE_VALUE) return;
     if (g_orig_out_mode) {
@@ -164,6 +227,25 @@ int getch_impl() {
     int ch = getchar();
     return ch;
 }
+
+/* Reads one UTF-8 character as a code point (-1 on EOF, -1 if invalid). */
+int getch_cp() {
+    int ch = getchar();
+    if (ch == EOF) return -1;
+    if (ch < 0x80) return ch;
+    if (ch < 0xC2 || ch > 0xF4) return -1;
+    int need = ch >= 0xF0 ? 3 : ch >= 0xE0 ? 2 : 1;
+    char buf[4];
+    buf[0] = (char)ch;
+    for (int i = 1; i <= need; i++) {
+        int c = getchar();
+        if (c == EOF) return -1;
+        buf[i] = (char)c;
+    }
+    int cp;
+    if (utf8_decode(buf, need + 1, &cp) != need + 1) return -1;
+    return cp;
+}
 #endif
 
 /* Unified key codes and key reader to normalize Windows and POSIX input.
@@ -173,67 +255,57 @@ int getch_impl() {
 */
 
 #ifdef _WIN32
-/* True while a Shift key is held, so Shift+arrow can be told apart from arrow. */
-static int shift_held(void) {
-    return (GetKeyState(VK_SHIFT) & 0x8000) != 0;
-}
-
 int read_key() {
-    int ch = getch_impl();
-    if (ch == 0 || ch == 224) {
-        int ch2 = getch_impl();
-        switch (ch2) {
-            case 72: return shift_held() ? KEY_SHIFT_UP : KEY_UP;
-            case 80: return shift_held() ? KEY_SHIFT_DOWN : KEY_DOWN;
-            case 75: return shift_held() ? KEY_SHIFT_LEFT : KEY_LEFT;
-            case 77: return shift_held() ? KEY_SHIFT_RIGHT : KEY_RIGHT;
-            case 59: return KEY_F1;
-            case 60: return KEY_F2;
-            case 61: return KEY_F3;
-            case 62: return KEY_F4;
-            case 63: return KEY_F5;
-            case 68: return KEY_F10;
-            case 82: return KEY_INSERT;
-            case 83: return KEY_DELETE;
-            case 33: return KEY_ALT_F;  // Alt+F
-            case 18: return KEY_ALT_E;  // Alt+E
-            case 31: return KEY_ALT_S;  // Alt+S
-            case 24: return KEY_ALT_O;  // Alt+O
-            default: return -1;
+    int vk, ch;
+    DWORD ctrl;
+    next_key_event(&vk, &ch, &ctrl);
+    int shift = (ctrl & SHIFT_PRESSED) != 0;
+    int alt = (ctrl & LEFT_ALT_PRESSED) != 0;
+
+    /* Keys with no character: arrows, function keys, Insert/Delete */
+    if (ch == 0) {
+        switch (vk) {
+            case VK_UP:     return shift ? KEY_SHIFT_UP : KEY_UP;
+            case VK_DOWN:   return shift ? KEY_SHIFT_DOWN : KEY_DOWN;
+            case VK_LEFT:   return shift ? KEY_SHIFT_LEFT : KEY_LEFT;
+            case VK_RIGHT:  return shift ? KEY_SHIFT_RIGHT : KEY_RIGHT;
+            case VK_F1:     return KEY_F1;
+            case VK_F2:     return KEY_F2;
+            case VK_F3:     return KEY_F3;
+            case VK_F4:     return KEY_F4;
+            case VK_F5:     return KEY_F5;
+            case VK_F10:    return KEY_F10;
+            case VK_INSERT: return KEY_INSERT;
+            case VK_DELETE: return KEY_DELETE;
+            default:        return -1;
         }
-    } else {
-        switch (ch) {
-            case 27:
-                // Some Windows terminals send Alt+letter as ESC followed by the letter
-                if (kbhit()) {
-                    int ch3 = getch_impl();
-                    switch (ch3) {
-                        case 'f': case 'F': return KEY_ALT_F;
-                        case 'e': case 'E': return KEY_ALT_E;
-                        case 's': case 'S': return KEY_ALT_S;
-                        case 'o': case 'O': return KEY_ALT_O;
-                        default: _ungetch(ch3); return KEY_ESC;
-                    }
-                }
-                return KEY_ESC;
-            case 13: return KEY_ENTER;
-            case 8:
-            case 127: return KEY_BACKSPACE;
-            case 9: return KEY_TAB;
-            case 14: return KEY_CTRL_N;
-            case 15: return KEY_CTRL_O;
-            case 17: return KEY_CTRL_Q;
-            case 19: return KEY_CTRL_S;
-            case 25: return KEY_CTRL_Y;
-            case 26: return KEY_CTRL_Z;
-            case 3: return KEY_CTRL_C;
-            case 22: return KEY_CTRL_V;
-            case 24: return KEY_CTRL_X;
-            case 6: return KEY_CTRL_F;
-            case 18: return KEY_CTRL_R;
-            case 7: return KEY_CTRL_G;
-            default: return ch;
-        }
+    }
+
+    /* Alt+letter for the menu shortcuts */
+    if (alt && (ch == 'f' || ch == 'F')) return KEY_ALT_F;
+    if (alt && (ch == 'e' || ch == 'E')) return KEY_ALT_E;
+    if (alt && (ch == 's' || ch == 'S')) return KEY_ALT_S;
+    if (alt && (ch == 'o' || ch == 'O')) return KEY_ALT_O;
+
+    switch (ch) {
+        case 27:  return KEY_ESC;
+        case 13:  return KEY_ENTER;
+        case 8:
+        case 127: return KEY_BACKSPACE;
+        case 9:   return KEY_TAB;
+        case 14:  return KEY_CTRL_N;
+        case 15:  return KEY_CTRL_O;
+        case 17:  return KEY_CTRL_Q;
+        case 19:  return KEY_CTRL_S;
+        case 25:  return KEY_CTRL_Y;
+        case 26:  return KEY_CTRL_Z;
+        case 3:   return KEY_CTRL_C;
+        case 22:  return KEY_CTRL_V;
+        case 24:  return KEY_CTRL_X;
+        case 6:   return KEY_CTRL_F;
+        case 18:  return KEY_CTRL_R;
+        case 7:   return KEY_CTRL_G;
+        default:  return ch;   /* printable text, any Unicode code point */
     }
 }
 #else
@@ -256,6 +328,21 @@ int read_key() {
     if (ch == 6) return KEY_CTRL_F;
     if (ch == 18) return KEY_CTRL_R;
     if (ch == 7) return KEY_CTRL_G;
+
+    if (ch >= 0xC2 && ch <= 0xF4) {   // UTF-8 lead byte: return the code point
+        int need = ch >= 0xF0 ? 3 : ch >= 0xE0 ? 2 : 1;
+        char buf[4];
+        buf[0] = (char)ch;
+        for (int i = 1; i <= need; i++) {
+            int c = getch_impl();
+            if (c == EOF) return -1;
+            buf[i] = (char)c;
+        }
+        int cp;
+        if (utf8_decode(buf, need + 1, &cp) != need + 1) return -1;
+        return cp;
+    }
+    if ((ch < 0x20 && ch != 27) || (ch >= 0x80 && ch < 0xC2) || ch > 0xF4) return -1;
 
     if (ch != 27) { // Not an escape sequence
         return ch;

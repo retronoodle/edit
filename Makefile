@@ -1,13 +1,20 @@
 CC=gcc
 CFLAGS=-Wall -Wextra -std=c99
 TARGET=edit
-SOURCES=edit.c term.c buffer.c ui.c files.c undo.c clipboard.c search.c
-HEADERS=editor.h term.h buffer.h ui.h files.h undo.h clipboard.h search.h
+SOURCES=edit.c term.c buffer.c ui.c files.c undo.c clipboard.c search.c utf8.c
+HEADERS=editor.h term.h buffer.h ui.h files.h undo.h clipboard.h search.h utf8.h
+TEST=test_utf8
 
 $(TARGET): $(SOURCES) $(HEADERS)
 	$(CC) $(CFLAGS) -o $(TARGET) $(SOURCES)
 
-clean:
-	del $(TARGET).exe
+$(TEST): test_utf8.c utf8.c utf8.h
+	$(CC) $(CFLAGS) -o $(TEST) test_utf8.c utf8.c
 
-.PHONY: clean
+test: $(TEST)
+	./$(TEST)
+
+clean:
+	del $(TARGET).exe $(TEST).exe
+
+.PHONY: clean test

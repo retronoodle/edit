@@ -65,8 +65,8 @@ static int ask_replace(void) {
     fflush(stdout);
 
     for (;;) {
-        int c = getch_impl();
-        if (c == EOF || c == 27) return 27;
+        int c = getch_cp();
+        if (c == -1 || c == 27) return 27;
         if (c == 'y' || c == 'Y') return 'y';
         if (c == 'n' || c == 'N') return 'n';
         if (c == 'a' || c == 'A') return 'a';

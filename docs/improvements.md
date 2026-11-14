@@ -18,10 +18,10 @@ What the editor needs to move from a DOS-style toy to something that feels curre
 - Find (Ctrl+F, case-insensitive), Find Next (F3, wraps), Replace (Ctrl+R, Y/N/A/Esc, from cursor to end, one undo step), Go to Line (Ctrl+G). All in the Search menu too. Lives in `search.c`.
 - Ctrl+H was not used for Replace: terminals send it as Backspace.
 
-### 5. UTF-8 support
-- Currently ASCII only. Non-ASCII input is mangled and can corrupt a line.
-- Store text as UTF-8 and handle multi-byte cursor movement and display width.
-- Probably the single biggest step toward "not the stone age."
+### 5. ~~UTF-8 support~~ (done)
+- Text is stored as UTF-8. Typing, paste, load and save handle non-ASCII; the cursor steps by whole characters; wide characters (CJK, emoji) take two columns. Lives in `utf8.c`.
+- Limits: no grapheme clustering (ZWJ emoji and flags split apart), no right-to-left, search case-folding is ASCII only, and tabs or control characters in a file show as `?`.
+- Non-ASCII file names (command line, folder browser) still go through the ANSI code page on Windows.
 
 ### 6. Interactive menu bar
 - Only File has a working dropdown. Edit, Search and Options are displayed but do nothing.

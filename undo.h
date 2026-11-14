@@ -8,7 +8,8 @@ void undo_record_insert(int y, int x, const char *s, int n, int cx, int cy);
 void undo_record_delete(int y, int x, const char *s, int n, int cx, int cy);
 void undo_record_split(int y, int x, int cx, int cy);
 void undo_record_join(int y, int x, int cx, int cy);
-void undo_record_replace(int y, int x, char old, char ch, int cx, int cy);
+void undo_record_replace(int y, int x, const char *old, int olen,
+                         const char *ch, int clen, int cx, int cy);
 
 /* Forces the next recorded edit to start a new undo step. */
 void undo_break_group(void);

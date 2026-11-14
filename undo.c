@@ -178,11 +178,12 @@ void undo_record_join(int y, int x, int cx, int cy) {
 }
 
 /* Overwrite mode: one character replaced by another, as a single step. */
-void undo_record_replace(int y, int x, char old, char ch, int cx, int cy) {
+void undo_record_replace(int y, int x, const char *old, int olen,
+                         const char *ch, int clen, int cx, int cy) {
     new_edit();
     int g = cur_group();
-    list_push(&undo_list, make_op(OP_DELETE, g, y, x, &old, 1, cx, cy));
-    list_push(&undo_list, make_op(OP_INSERT, g, y, x, &ch, 1, cx, cy));
+    list_push(&undo_list, make_op(OP_DELETE, g, y, x, old, olen, cx, cy));
+    list_push(&undo_list, make_op(OP_INSERT, g, y, x, ch, clen, cx, cy));
     break_next = 1;
 }
 

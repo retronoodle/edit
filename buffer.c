@@ -6,6 +6,7 @@
 #include "editor.h"
 #include "buffer.h"
 #include "undo.h"
+#include "utf8.h"
 
 Editor editor;
 
@@ -100,11 +101,15 @@ void init_editor() {
     reset_document();
 }
 
+/* scroll_x is in display columns; cursor_x is a byte offset. */
 void adjust_scroll() {
-    if (editor.cursor_x < editor.scroll_x) {
-        editor.scroll_x = editor.cursor_x;
-    } else if (editor.cursor_x >= editor.scroll_x + SCREEN_WIDTH) {
-        editor.scroll_x = editor.cursor_x - SCREEN_WIDTH + 1;
+    Line *cur = &editor.lines[editor.cursor_y];
+    int cx = utf8_col(cur->text, cur->len, editor.cursor_x);
+
+    if (cx < editor.scroll_x) {
+        editor.scroll_x = cx;
+    } else if (cx >= editor.scroll_x + SCREEN_WIDTH) {
+        editor.scroll_x = cx - SCREEN_WIDTH + 1;
     }
 
     if (editor.cursor_y < editor.scroll_y) {
@@ -118,23 +123,26 @@ void move_cursor(int dx, int dy) {
     undo_break_group();   /* moving the cursor ends the current typing step */
 
     if (dy != 0) {
+        /* Keep the same display column when moving between lines */
+        Line *cur = &editor.lines[editor.cursor_y];
+        int col = utf8_col(cur->text, cur->len, editor.cursor_x);
+
         editor.cursor_y += dy;
         if (editor.cursor_y < 0) editor.cursor_y = 0;
         if (editor.cursor_y >= editor.line_count) editor.cursor_y = editor.line_count - 1;
 
-        int line_len = editor.lines[editor.cursor_y].len;
-        if (editor.cursor_x > line_len) {
-            editor.cursor_x = line_len;
-        }
+        Line *nl = &editor.lines[editor.cursor_y];
+        editor.cursor_x = utf8_byte_at_col(nl->text, nl->len, col);
     }
 
     if (dx != 0) {
-        editor.cursor_x += dx;
-        if (editor.cursor_x < 0) editor.cursor_x = 0;
-
-        int line_len = editor.lines[editor.cursor_y].len;
-        if (editor.cursor_x > line_len) {
-            editor.cursor_x = line_len;
+        Line *ln = &editor.lines[editor.cursor_y];
+        /* Step one whole character at a time */
+        for (int i = 0; i < dx && editor.cursor_x < ln->len; i++) {
+            editor.cursor_x = utf8_next(ln->text, ln->len, editor.cursor_x);
+        }
+        for (int i = 0; i < -dx && editor.cursor_x > 0; i++) {
+            editor.cursor_x = utf8_prev(ln->text, ln->len, editor.cursor_x);
         }
     }
 
@@ -180,20 +188,24 @@ void raw_join(int y) {
 
 /* ---- Editing operations: change the text and record it for undo ---- */
 
-void insert_char(char ch) {
+/* Inserts one whole character (n UTF-8 bytes) at the cursor. Insert mode
+   shifts the tail right; overwrite mode replaces the character under the
+   cursor, except at end of line. */
+void insert_utf8(const char *s, int n) {
     int y = editor.cursor_y, x = editor.cursor_x;
     Line *ln = &editor.lines[y];
 
-    /* Insert mode shifts the tail right; overwrite mode replaces, except at end of line */
     if (editor.insert_mode || x >= ln->len) {
-        raw_insert_text(y, x, &ch, 1);
-        undo_record_insert(y, x, &ch, 1, x, y);
+        raw_insert_text(y, x, s, n);
+        undo_record_insert(y, x, s, n, x, y);
     } else {
-        char old = ln->text[x];
-        ln->text[x] = ch;
-        undo_record_replace(y, x, old, ch, x, y);
+        int end = utf8_next(ln->text, ln->len, x);
+        int old_n = end - x;
+        undo_record_replace(y, x, ln->text + x, old_n, s, n, x, y);   /* copies both */
+        raw_delete_text(y, x, old_n);
+        raw_insert_text(y, x, s, n);
     }
-    editor.cursor_x++;
+    editor.cursor_x += n;
     editor.modified = 1;
 }
 
@@ -202,9 +214,9 @@ void delete_char() {
     Line *ln = &editor.lines[y];
 
     if (x < ln->len) {
-        char c = ln->text[x];
-        raw_delete_text(y, x, 1);
-        undo_record_delete(y, x, &c, 1, x, y);
+        int n = utf8_next(ln->text, ln->len, x) - x;
+        undo_record_delete(y, x, ln->text + x, n, x, y);
+        raw_delete_text(y, x, n);
         editor.modified = 1;
     }
 }
@@ -213,10 +225,11 @@ void backspace() {
     int y = editor.cursor_y, x = editor.cursor_x;
 
     if (x > 0) {
-        int nx = x - 1;
-        char c = editor.lines[y].text[nx];
-        raw_delete_text(y, nx, 1);
-        undo_record_delete(y, nx, &c, 1, x, y);
+        Line *ln = &editor.lines[y];
+        int nx = utf8_prev(ln->text, ln->len, x);
+        int n = x - nx;
+        undo_record_delete(y, nx, ln->text + nx, n, x, y);
+        raw_delete_text(y, nx, n);
         editor.cursor_x = nx;
         editor.modified = 1;
     } else if (y > 0) {

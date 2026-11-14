@@ -12,7 +12,7 @@ void reset_document(void);
 void init_editor(void);
 void adjust_scroll(void);
 void move_cursor(int dx, int dy);
-void insert_char(char ch);
+void insert_utf8(const char *s, int n);   /* one whole character, n bytes */
 void delete_char(void);
 void backspace(void);
 void insert_newline(void);

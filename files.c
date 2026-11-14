@@ -68,7 +68,7 @@ static int confirm_discard(void) {
     fflush(stdout);
 
     while (1) {
-        int c = getch_impl();
+        int c = getch_cp();
         if (c == 'y' || c == 'Y') return do_save();
         if (c == 'n' || c == 'N') return 1;
         if (c == 27) return 0;

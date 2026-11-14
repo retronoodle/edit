@@ -1,3 +1,5 @@
 edit.exe
 edit
 *.o
+test_utf8
+test_utf8.exe

@@ -24,6 +24,7 @@ This is a simple text editor written in C, similar to MS-DOS EDIT. It runs in th
 - `clipboard.c/.h`: selection (Shift+arrows), internal clipboard, cut/copy/paste (Ctrl+X/C/V)
 - `undo.c/.h`: undo/redo operation log (`undo_record_*` called from buffer.c, `undo_undo`/`undo_redo`, Ctrl+Z/Ctrl+Y)
 - `search.c/.h`: Find, Find Next, Replace, Go to Line (Ctrl+F, F3, Ctrl+R, Ctrl+G; Search menu)
+- `utf8.c/.h`: UTF-8 decode/encode, character boundaries, display width (`cp_width`, `utf8_col`, `utf8_byte_at_col`). `test_utf8.c` holds its unit tests (`make test`)
 - `edit.c`: `main`, main loop, key/menu dispatch
 
 New features should go in their own module (e.g. `search.c`) rather than growing `edit.c`.

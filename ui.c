@@ -11,6 +11,7 @@
 #include "editor.h"
 #include "term.h"
 #include "clipboard.h"
+#include "utf8.h"
 #include "ui.h"
 
 static const int menu_positions[4] = {0, 6, 12, 20};  // X position of each menu
@@ -21,9 +22,10 @@ void draw_status_line() {
     buf[SCREEN_WIDTH] = '\0';
 
     char left[256];
+    Line *cur = &editor.lines[editor.cursor_y];
     snprintf(left, sizeof(left), "F1=Help | Line:%d Col:%d %s %s",
              editor.cursor_y + 1,
-             editor.cursor_x + 1,
+             utf8_col(cur->text, cur->len, editor.cursor_x) + 1,
              editor.insert_mode ? "INS" : "OVR",
              editor.modified ? "*" : "");
 
@@ -108,41 +110,66 @@ void draw_dropdown() {
     }
 }
 
+/* Draws one screen row of a file line. scroll_x and column positions are in
+   display columns; each character is drawn whole, so wide characters take
+   two cells and never split. Control and invalid bytes show as '?'. */
+static void draw_row(int file_line, int has_sel, int sy1, int sx1, int sy2, int sx2) {
+    int hl = 0;      /* 1 while drawing reverse video */
+    int out = 0;     /* screen cells emitted so far */
+
+    if (file_line < editor.line_count) {
+        const Line *ln = &editor.lines[file_line];
+        int pos = 0, col = 0;
+        int right = editor.scroll_x + SCREEN_WIDTH;
+
+        while (pos < ln->len && col < right) {
+            int nxt = utf8_next(ln->text, ln->len, pos);
+            int cp;
+            utf8_decode(ln->text + pos, ln->len - pos, &cp);
+            int w = cp_width(cp);
+
+            int start = col > editor.scroll_x ? col : editor.scroll_x;
+            int end = col + w < right ? col + w : right;
+            if (end > start) {
+                int selected = 0;
+                if (has_sel && file_line >= sy1 && file_line <= sy2) {
+                    int from = (file_line == sy1) ? sx1 : 0;
+                    int to = (file_line == sy2) ? sx2 : ln->len;
+                    selected = pos >= from && pos < to;
+                }
+                if (selected != hl) {
+                    fb_puts(selected ? "\x1b[7m" : "\x1b[0m");
+                    hl = selected;
+                }
+                while (out < start - editor.scroll_x) { fb_write(" ", 1); out++; }
+
+                int fully_visible = col >= editor.scroll_x && col + w <= right;
+                if (!fully_visible) {
+                    for (int k = start; k < end; k++) fb_write(" ", 1);   /* wide char cut at an edge */
+                } else if (cp < 0 || cp < 0x20 || (cp >= 0x7F && cp < 0xA0)) {
+                    fb_write("?", 1);
+                } else {
+                    fb_write(ln->text + pos, nxt - pos);   /* includes any combining marks */
+                }
+                out = end - editor.scroll_x;
+            }
+            col += w;
+            pos = nxt;
+        }
+    }
+
+    if (hl) fb_puts("\x1b[0m");
+    while (out < SCREEN_WIDTH) { fb_write(" ", 1); out++; }
+}
+
 void draw_editor_area() {
     int has_sel, sy1 = 0, sx1 = 0, sy2 = 0, sx2 = 0;
     has_sel = sel_range(&sy1, &sx1, &sy2, &sx2);
 
     for (int screen_row = 1; screen_row < SCREEN_HEIGHT - 1; screen_row++) {
         fb_gotoxy(0, screen_row);
-
         int file_line = screen_row - 1 + editor.scroll_y;
-        char *line = NULL;
-        int line_len = 0;
-        if (file_line < editor.line_count) {
-            line = editor.lines[file_line].text;
-            line_len = editor.lines[file_line].len;
-        }
-
-        /* Selected text is drawn in reverse video. */
-        int highlighted = 0;
-        for (int col = 0; col < SCREEN_WIDTH; col++) {
-            int file_col = col + editor.scroll_x;
-            char ch = (line && file_col < line_len) ? line[file_col] : ' ';
-
-            int selected = 0;
-            if (has_sel && line && file_col < line_len &&
-                file_line >= sy1 && file_line <= sy2) {
-                int from = (file_line == sy1) ? sx1 : 0;
-                int to = (file_line == sy2) ? sx2 : line_len;
-                selected = file_col >= from && file_col < to;
-            }
-            if (selected != highlighted) {
-                fb_puts(selected ? "\x1b[7m" : "\x1b[0m");
-                highlighted = selected;
-            }
-            fb_write(&ch, 1);
-        }
-        if (highlighted) fb_puts("\x1b[0m");
+        draw_row(file_line, has_sel, sy1, sx1, sy2, sx2);
     }
 }
 
@@ -155,7 +182,8 @@ void refresh_screen() {
     draw_dropdown();
     draw_status_line();
 
-    int screen_x = editor.cursor_x - editor.scroll_x;
+    Line *cur = &editor.lines[editor.cursor_y];
+    int screen_x = utf8_col(cur->text, cur->len, editor.cursor_x) - editor.scroll_x;
     int screen_y = editor.cursor_y - editor.scroll_y + 1;
     fb_gotoxy(screen_x, screen_y);
     fb_puts("\x1b[?25h");   // show cursor
@@ -195,27 +223,34 @@ int prompt_line_opt(const char *msg, char *buf, int size) {
     set_cursor_visibility(1);
 
     while (1) {
-        int c = getch_impl();
-        if (c == EOF) continue;
+        int c = getch_cp();                  /* 0 = non-text key, -1 = nothing usable */
+        if (c < 0) continue;
         if (c == 13 || c == 10) break;
         if (c == 27) {                       // Esc: cancel
             buf[0] = '\0';
             return 0;
         }
-        if (c == 8 || c == 127) {            // Backspace
+        if (c == 8 || c == 127) {            // Backspace: remove one whole character
             if (len > 0) {
-                len--;
+                int p = utf8_prev(buf, len, len);
+                int w = utf8_width(buf + p, len - p);
+                len = p;
                 buf[len] = '\0';
-                printf("\b \b");
+                for (int i = 0; i < w; i++) printf("\b \b");
                 fflush(stdout);
             }
             continue;
         }
-        if (c >= 32 && c <= 126 && len < size - 1) {
-            buf[len++] = (char)c;
-            buf[len] = '\0';
-            putchar(c);
-            fflush(stdout);
+        if (c >= 32 && c != 127 && (c < 0x80 || c >= 0xA0) && c < KEY_BASE) {
+            char enc[4];
+            int n = utf8_encode(c, enc);
+            if (len + n < size) {
+                memcpy(buf + len, enc, n);
+                len += n;
+                buf[len] = '\0';
+                fwrite(enc, 1, n, stdout);
+                fflush(stdout);
+            }
         }
     }
     buf[len] = '\0';
@@ -259,8 +294,9 @@ void show_help(void) {
     printf("  Backspace       - Backspace\n");
     printf("  Enter           - New line\n");
     printf("  Tab             - Insert 4 spaces\n\n");
+    printf("Files are read and saved as UTF-8.\n\n");
     printf("Press any key to continue...");
     fflush(stdout);
-    getch_impl();
+    getch_cp();
     clear_screen();
 }
