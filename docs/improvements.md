@@ -14,9 +14,9 @@ What the editor needs to move from a DOS-style toy to something that feels curre
 - Shift+arrows select (shown in reverse video). Ctrl+X/C/V cut/copy/paste; typing or Delete replaces a selection. Each cut, paste or replace is one undo step. Lives in `clipboard.c`.
 - Still open: system clipboard. Windows Terminal may take Ctrl+C/Ctrl+V for itself; if so, its paste arrives as typed text.
 
-### 4. Search and replace
-- The Search menu is displayed but has no implementation.
-- Find (Ctrl+F), Find Next (F3), Replace (Ctrl+H), Go to Line.
+### 4. ~~Search and replace~~ (done)
+- Find (Ctrl+F, case-insensitive), Find Next (F3, wraps), Replace (Ctrl+R, Y/N/A/Esc, from cursor to end, one undo step), Go to Line (Ctrl+G). All in the Search menu too. Lives in `search.c`.
+- Ctrl+H was not used for Replace: terminals send it as Backspace.
 
 ### 5. UTF-8 support
 - Currently ASCII only. Non-ASCII input is mangled and can corrupt a line.
@@ -57,5 +57,5 @@ What the editor needs to move from a DOS-style toy to something that feels curre
 ## Current Constraints
 
 - Files are always saved with Unix line endings (`\n`).
-- No search exists yet. The clipboard is internal only.
+- The clipboard is internal only.
 - Undo history has no depth limit and the modified flag is not save-point aware (undo after a save still shows `*`).

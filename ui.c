@@ -13,6 +13,8 @@
 #include "clipboard.h"
 #include "ui.h"
 
+static const int menu_positions[4] = {0, 6, 12, 20};  // X position of each menu
+
 void draw_status_line() {
     char buf[SCREEN_WIDTH + 1];
     memset(buf, ' ', SCREEN_WIDTH);
@@ -48,7 +50,6 @@ void draw_status_line() {
 
 void draw_menu_bar() {
     const char *menus[] = {"File", "Edit", "Search", "Options"};
-    int menu_positions[] = {0, 6, 12, 20};  // X positions of each menu
 
     fb_gotoxy(0, 0);
 
@@ -79,14 +80,30 @@ static const char *file_items[FILE_ITEM_COUNT] = {"New", "Open...", "Save", "Sav
 static const char *file_hints[FILE_ITEM_COUNT] = {"Ctrl+N", "Ctrl+O", "Ctrl+S", "", "Ctrl+Q"};
 const char file_mnemonics[] = "NOSAX";   // Letter shortcut for each item
 
-void draw_dropdown() {
-    if (!editor.dropdown_open || editor.selected_menu != 0) return;
+/* Search menu items. Index order matches run_search_item() in edit.c. */
+static const char *search_items[SEARCH_ITEM_COUNT] = {"Find", "Find Next", "Replace", "Go to Line"};
+static const char *search_hints[SEARCH_ITEM_COUNT] = {"Ctrl+F", "F3", "Ctrl+R", "Ctrl+G"};
+const char search_mnemonics[] = "FNRG";
 
-    for (int i = 0; i < FILE_ITEM_COUNT; i++) {
-        fb_gotoxy(0, 1 + i);
+void draw_dropdown() {
+    if (!editor.dropdown_open) return;
+
+    const char **items, **hints;
+    int count;
+    if (editor.selected_menu == 0) {
+        items = file_items; hints = file_hints; count = FILE_ITEM_COUNT;
+    } else if (editor.selected_menu == 2) {
+        items = search_items; hints = search_hints; count = SEARCH_ITEM_COUNT;
+    } else {
+        return;
+    }
+
+    int x = menu_positions[editor.selected_menu];
+    for (int i = 0; i < count; i++) {
+        fb_gotoxy(x, 1 + i);
 
         if (i == editor.selected_item) fb_printf("\x1b[7m"); // highlight
-        fb_printf(" %-10s %-7s ", file_items[i], file_hints[i]);
+        fb_printf(" %-10s %-7s ", items[i], hints[i]);
         if (i == editor.selected_item) fb_printf("\x1b[0m");
     }
 }
@@ -166,7 +183,7 @@ void show_message(const char *msg) {
 /* Reads a line of text on the prompt row. Enter accepts, Esc cancels.
    Reads char-by-char so it works in raw mode (POSIX) and cooked mode alike.
    Returns 1 if a non-empty line was entered. */
-int prompt_line(const char *msg, char *buf, int size) {
+int prompt_line_opt(const char *msg, char *buf, int size) {
     int len = 0;
     buf[0] = '\0';
 
@@ -202,7 +219,11 @@ int prompt_line(const char *msg, char *buf, int size) {
         }
     }
     buf[len] = '\0';
-    return len > 0;
+    return 1;
+}
+
+int prompt_line(const char *msg, char *buf, int size) {
+    return prompt_line_opt(msg, buf, size) && buf[0] != '\0';
 }
 
 void show_help(void) {
@@ -217,6 +238,7 @@ void show_help(void) {
     printf("  Arrow Keys      - Navigate menus\n");
     printf("  Enter           - Select menu item\n");
     printf("  N/O/S/A/X       - Pick File menu item (New/Open/Save/Save As/Exit)\n");
+    printf("  F/N/R/G         - Pick Search menu item (Find/Find Next/Replace/Go to Line)\n");
     printf("  Open (O)        - Browse folders (Enter=open, T=type a name)\n");
     printf("  ESC             - Close menu\n\n");
     printf("Keyboard Shortcuts:\n");
@@ -225,6 +247,9 @@ void show_help(void) {
     printf("  Ctrl+S          - Save file\n");
     printf("  Ctrl+Z / Ctrl+Y - Undo / Redo\n");
     printf("  Ctrl+X/C/V      - Cut / Copy / Paste\n");
+    printf("  Ctrl+F / F3     - Find / Find next\n");
+    printf("  Ctrl+R          - Replace (Y/N/A=all, Esc=stop)\n");
+    printf("  Ctrl+G          - Go to line\n");
     printf("  Ctrl+Q          - Exit\n\n");
     printf("Editing:\n");
     printf("  Arrow Keys      - Move cursor\n");

@@ -229,6 +229,9 @@ int read_key() {
             case 3: return KEY_CTRL_C;
             case 22: return KEY_CTRL_V;
             case 24: return KEY_CTRL_X;
+            case 6: return KEY_CTRL_F;
+            case 18: return KEY_CTRL_R;
+            case 7: return KEY_CTRL_G;
             default: return ch;
         }
     }
@@ -250,6 +253,9 @@ int read_key() {
     if (ch == 3) return KEY_CTRL_C;
     if (ch == 22) return KEY_CTRL_V;
     if (ch == 24) return KEY_CTRL_X;
+    if (ch == 6) return KEY_CTRL_F;
+    if (ch == 18) return KEY_CTRL_R;
+    if (ch == 7) return KEY_CTRL_G;
 
     if (ch != 27) { // Not an escape sequence
         return ch;

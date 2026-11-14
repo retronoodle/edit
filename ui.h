@@ -5,13 +5,17 @@
 #define FILE_ITEM_COUNT 5
 extern const char file_mnemonics[];   /* File menu shortcut letters, in item order */
 
+#define SEARCH_ITEM_COUNT 4
+extern const char search_mnemonics[]; /* Search menu shortcut letters, in item order */
+
 void draw_status_line(void);
 void draw_menu_bar(void);
 void draw_dropdown(void);
 void draw_editor_area(void);
 void refresh_screen(void);
 void show_message(const char *msg);
-int prompt_line(const char *msg, char *buf, int size);
+int prompt_line(const char *msg, char *buf, int size);      /* 1 only if non-empty */
+int prompt_line_opt(const char *msg, char *buf, int size);  /* 1 on Enter, even if empty */
 void show_help(void);
 
 #endif

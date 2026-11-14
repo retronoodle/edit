@@ -10,6 +10,7 @@
 #include "files.h"
 #include "undo.h"
 #include "clipboard.h"
+#include "search.h"
 
 static int needs_redraw = 1;
 
@@ -33,6 +34,16 @@ static int run_file_item(int item) {
         case 4: return do_exit();
     }
     return 0;
+}
+
+/* Runs a Search menu item by index. */
+static void run_search_item(int item) {
+    switch (item) {
+        case 0: search_find(); break;
+        case 1: search_next(); break;
+        case 2: search_replace(); break;
+        case 3: search_goto_line(); break;
+    }
 }
 
 int main(int argc, char *argv[]) {
@@ -100,7 +111,7 @@ int main(int argc, char *argv[]) {
                         break;
                     case KEY_DOWN:
                     case KEY_ENTER:
-                        if (editor.selected_menu == 0) { // Only File menu implemented
+                        if (editor.selected_menu == 0 || editor.selected_menu == 2) { // File and Search have items
                             editor.dropdown_open = 1;
                             editor.selected_item = 0;
                         }
@@ -110,8 +121,16 @@ int main(int argc, char *argv[]) {
                         break;
                 }
             } else {
-                // Dropdown navigation (only File has items so far)
-                int item_count = (editor.selected_menu == 0) ? FILE_ITEM_COUNT : 0;
+                // Dropdown navigation (File and Search have items so far)
+                int item_count = 0;
+                const char *mnemonics = "";
+                if (editor.selected_menu == 0) {
+                    item_count = FILE_ITEM_COUNT;
+                    mnemonics = file_mnemonics;
+                } else if (editor.selected_menu == 2) {
+                    item_count = SEARCH_ITEM_COUNT;
+                    mnemonics = search_mnemonics;
+                }
                 int item = -1;
 
                 switch (key) {
@@ -139,7 +158,7 @@ int main(int argc, char *argv[]) {
                         // Letter shortcut (case-insensitive): N, O, S, A, X
                         if (item_count && key >= 32 && key <= 126) {
                             int up = (key >= 'a' && key <= 'z') ? key - 32 : key;
-                            const char *m = strchr(file_mnemonics, up);
+                            const char *m = strchr(mnemonics, up);
                             if (m) item = (int)(m - file_mnemonics);
                         }
                         break;
@@ -148,7 +167,11 @@ int main(int argc, char *argv[]) {
                 if (item >= 0) {
                     editor.menu_active = 0;
                     editor.dropdown_open = 0;
-                    if (run_file_item(item)) running = 0;
+                    if (editor.selected_menu == 0) {
+                        if (run_file_item(item)) running = 0;
+                    } else {
+                        run_search_item(item);
+                    }
                 }
             }
             continue;
@@ -177,6 +200,10 @@ int main(int argc, char *argv[]) {
             case KEY_CTRL_C: clip_copy(); break;
             case KEY_CTRL_X: clip_cut(); break;
             case KEY_CTRL_V: clip_paste(); break;
+            case KEY_CTRL_F: search_find(); break;
+            case KEY_CTRL_R: search_replace(); break;
+            case KEY_CTRL_G: search_goto_line(); break;
+            case KEY_F3: search_next(); break;
 
             case KEY_INSERT: editor.insert_mode = !editor.insert_mode; break;
 

@@ -53,6 +53,9 @@ void set_line_wrap(int enable);
 #define KEY_CTRL_C 1207
 #define KEY_CTRL_V 1208
 #define KEY_CTRL_X 1209
+#define KEY_CTRL_F 1210
+#define KEY_CTRL_R 1211
+#define KEY_CTRL_G 1212
 #define KEY_ALT_F 1301
 #define KEY_ALT_E 1302
 #define KEY_ALT_S 1303
