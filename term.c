@@ -305,6 +305,7 @@ int read_key() {
         case 6:   return KEY_CTRL_F;
         case 18:  return KEY_CTRL_R;
         case 7:   return KEY_CTRL_G;
+        case 1:   return KEY_CTRL_A;
         default:  return ch;   /* printable text, any Unicode code point */
     }
 }
@@ -328,6 +329,7 @@ int read_key() {
     if (ch == 6) return KEY_CTRL_F;
     if (ch == 18) return KEY_CTRL_R;
     if (ch == 7) return KEY_CTRL_G;
+    if (ch == 1) return KEY_CTRL_A;
 
     if (ch >= 0xC2 && ch <= 0xF4) {   // UTF-8 lead byte: return the code point
         int need = ch >= 0xF0 ? 3 : ch >= 0xE0 ? 2 : 1;

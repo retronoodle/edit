@@ -17,20 +17,23 @@
 #include "buffer.h"
 #include "term.h"
 #include "ui.h"
+#include "options.h"
 #include "files.h"
 #include "undo.h"
 
 /* ---- File operations. Each returns 1 on success, 0 if cancelled/failed. ---- */
 
 static int write_file(const char *name) {
-    FILE *file = fopen(name, "w");
+    /* Binary mode: Windows must not add its own CR, the line ending comes from options */
+    FILE *file = fopen(name, "wb");
     if (!file) {
         show_message("Error: could not save file.");
         return 0;
     }
+    const char *eol = options.crlf ? "\r\n" : "\n";
     for (int i = 0; i < editor.line_count; i++) {
         fwrite(editor.lines[i].text, 1, editor.lines[i].len, file);
-        fputc('\n', file);
+        fputs(eol, file);
     }
     fclose(file);
     editor.modified = 0;
@@ -170,7 +173,7 @@ static void draw_browser(int sel, int top) {
 
     snprintf(line, sizeof(line), " Open: %s", cwd);
     fb_gotoxy(0, 1);
-    fb_printf("\x1b[7m%-79.79s\x1b[0m", line);
+    fb_printf("\x1b[7m%-79.79s%s", line, options_base_sgr());
 
     for (int row = 0; row < BROWSER_ROWS; row++) {
         int idx = top + row;
@@ -182,14 +185,14 @@ static void draw_browser(int sel, int top) {
                      dir_entries[idx].is_dir ? "[DIR] " : "      ",
                      dir_entries[idx].name);
             fb_printf("%-79.79s", line);
-            if (hl) fb_puts("\x1b[0m");
+            if (hl) fb_puts(options_base_sgr());
         } else {
             fb_printf("%-79s", "");
         }
     }
 
     fb_gotoxy(0, 22);
-    fb_printf("\x1b[7m%-79s\x1b[0m", " Enter=open  Esc=cancel  T=type name  Up/Down=move");
+    fb_printf("\x1b[7m%-79s%s", " Enter=open  Esc=cancel  T=type name  Up/Down=move", options_base_sgr());
     fb_gotoxy(0, 23);
     fb_printf("%-79s", "");
 
@@ -244,7 +247,8 @@ int do_open(void) {
     char name[256];
     if (!browse_for_file(name, sizeof(name))) return 0;
 
-    FILE *in = fopen(name, "r");
+    /* Binary mode keeps CR so the line ending style can be detected */
+    FILE *in = fopen(name, "rb");
     if (!in) {
         show_message("File not found.");
         return 0;
@@ -261,11 +265,13 @@ int do_open(void) {
     undo_clear();
     char chunk[4096];
     int need_line = 1;
+    int first_eol = -1;   /* -1 = no line ending seen yet, 1 = CRLF, 0 = LF */
     while (fgets(chunk, sizeof(chunk), in)) {
         int n = (int)strlen(chunk);
         int ends_line = (n > 0 && chunk[n - 1] == '\n');
         if (ends_line) {
             n--;
+            if (first_eol < 0) first_eol = (n > 0 && chunk[n - 1] == '\r');
             if (n > 0 && chunk[n - 1] == '\r') n--;   /* CRLF files */
         }
         if (need_line) {
@@ -284,6 +290,9 @@ int do_open(void) {
     if (editor.line_count == 0) {
         insert_line_at(0, "", 0);
     }
+
+    /* Keep saving in the style the file already uses */
+    if (first_eol >= 0) options.crlf = first_eol;
 
     strcpy(editor.filename, name);
     editor.cursor_x = 0;

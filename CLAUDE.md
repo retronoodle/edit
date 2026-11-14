@@ -19,13 +19,15 @@ This is a simple text editor written in C, similar to MS-DOS EDIT. It runs in th
 - `editor.h`: shared types (`Line`, `Editor`), screen size, and the global `extern Editor editor`
 - `term.c/.h`: frame buffer (`fb_*`, `fb_flush`), console/raw mode, `KEY_*` codes, `read_key()`
 - `buffer.c/.h`: `Editor editor` definition, line storage, editing ops (`insert_char`, `backspace`, ...), `move_cursor`/`adjust_scroll`, `init_editor`
+- `menu.c/.h`: menu tables (`menus[]`, items with label/hint/mnemonic/action), menu-mode keys (`menu_open_key`, `menu_handle_key`), and the `ACT_*` action codes
+- `options.c/.h`: `options` (tab width, line endings, color scheme), `options_cycle`, `options_label`, `options_base_sgr` (the scheme's SGR; use it instead of a plain `\x1b[0m`)
 - `ui.c/.h`: status line, menu bar, dropdown, editor area, `refresh_screen`, `show_message`, `prompt_line`, `show_help`
 - `files.c/.h`: save/save-as/new/open/exit and the folder browser
-- `clipboard.c/.h`: selection (Shift+arrows), internal clipboard, cut/copy/paste (Ctrl+X/C/V)
+- `clipboard.c/.h`: selection (Shift+arrows, Ctrl+A select all), internal clipboard, cut/copy/paste (Ctrl+X/C/V)
 - `undo.c/.h`: undo/redo operation log (`undo_record_*` called from buffer.c, `undo_undo`/`undo_redo`, Ctrl+Z/Ctrl+Y)
 - `search.c/.h`: Find, Find Next, Replace, Go to Line (Ctrl+F, F3, Ctrl+R, Ctrl+G; Search menu)
 - `utf8.c/.h`: UTF-8 decode/encode, character boundaries, display width (`cp_width`, `utf8_col`, `utf8_byte_at_col`). `test_utf8.c` holds its unit tests (`make test`)
-- `edit.c`: `main`, main loop, key/menu dispatch
+- `edit.c`: `main`, main loop, `run_action()` (runs a menu action or key command)
 
 New features should go in their own module (e.g. `search.c`) rather than growing `edit.c`.
 
@@ -64,13 +66,13 @@ This fixes cross-platform issues like:
 ### Screen Layout
 
 Fixed 80x25 character screen:
-- Line 0: Menu bar showing "File Edit Search Options"
+- Line 0: Menu bar showing "File Edit Search Options" (all four are working dropdowns)
 - Lines 1-23: Editable text area (23 visible lines)
 - Line 24: Status line with function key hints, cursor position, mode (INS/OVR), modified flag (*), filename
 
 ### Main Loop
 
-The main loop in `main()` (edit.c) reads a key and dispatches it: menu keys, then File menu items via `run_file_item()`, then editing keys. Help (F1), New, Open, Save and Exit are handled in the editing switch.
+The main loop in `main()` (edit.c) reads a key. Menu activation and menu-mode keys go to `menu.c`, which returns an `ACT_*` code; `run_action()` in edit.c runs it. Otherwise the key goes to the editing switch. Menu items and key shortcuts share the same functions.
 
 ## Development Notes
 
@@ -78,5 +80,6 @@ The main loop in `main()` (edit.c) reads a key and dispatches it: menu keys, the
 - Build is `make` (compiles all `.c` files listed in the Makefile). Add new `.c` files to `SOURCES` and their headers to `HEADERS`
 - The file browser still caps listings at MAX_DIR_ENTRIES=512
 - Clipboard is internal only (no system clipboard yet)
-- Tab key inserts 4 spaces
-- Files are always saved with Unix line endings (\n)
+- Tab key inserts `options.tab_width` spaces (2, 4 or 8; default 4)
+- Files are saved with LF by default. Opening a file with CRLF switches saving to CRLF; the Options menu can change it. Files are written and read in binary mode, so the line ending is controlled by `options.crlf`
+- Options are not saved between runs yet

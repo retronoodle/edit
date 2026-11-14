@@ -2,12 +2,6 @@
 #ifndef UI_H
 #define UI_H
 
-#define FILE_ITEM_COUNT 5
-extern const char file_mnemonics[];   /* File menu shortcut letters, in item order */
-
-#define SEARCH_ITEM_COUNT 4
-extern const char search_mnemonics[]; /* Search menu shortcut letters, in item order */
-
 void draw_status_line(void);
 void draw_menu_bar(void);
 void draw_dropdown(void);

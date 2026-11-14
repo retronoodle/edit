@@ -23,12 +23,11 @@ What the editor needs to move from a DOS-style toy to something that feels curre
 - Limits: no grapheme clustering (ZWJ emoji and flags split apart), no right-to-left, search case-folding is ASCII only, and tabs or control characters in a file show as `?`.
 - Non-ASCII file names (command line, folder browser) still go through the ANSI code page on Windows.
 
-### 6. Interactive menu bar
-- Only File has a working dropdown. Edit, Search and Options are displayed but do nothing.
-- File: New, Open, Save, Save As, Exit
-- Edit: Undo, Redo, Cut, Copy, Paste, Select All
-- Search: Find, Find Next, Replace, Go to Line
-- Options: tab width, word wrap, line numbers, line endings, color scheme
+### 6. ~~Interactive menu bar~~ (done)
+- All four menus open and run their items. Menu tables and menu keys live in `menu.c`; Options settings in `options.c`.
+- File, Edit, Search: every item works (Edit adds Select All, Ctrl+A).
+- Options: tab width (2/4/8), line endings (LF/CRLF), color scheme (Default/Blue/Light). Toggles update in place and the menu stays open.
+- Still open: word wrap and line numbers (need the features first). Options are not saved between runs (see Config file).
 
 ### 7. Line wrapping or horizontal scrolling
 - Currently limited to the visible width.
@@ -56,6 +55,6 @@ What the editor needs to move from a DOS-style toy to something that feels curre
 
 ## Current Constraints
 
-- Files are always saved with Unix line endings (`\n`).
+- Files are saved with LF by default. A CRLF file keeps CRLF on save. Changed via Options > Line endings.
 - The clipboard is internal only.
 - Undo history has no depth limit and the modified flag is not save-point aware (undo after a save still shows `*`).

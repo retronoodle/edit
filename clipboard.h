@@ -5,6 +5,7 @@
 /* Selection: the anchor is set where the cursor was on the first Shift+move. */
 void sel_extend(void);                 /* start a selection at the cursor if none is active */
 void sel_clear(void);
+void sel_select_all(void);             /* anchor at the start, cursor at the end of the document */
 int sel_range(int *y1, int *x1, int *y2, int *x2);  /* 1 if a non-empty selection, normalized */
 
 /* Deletes the selected text and clears the selection. No undo group of its own. */

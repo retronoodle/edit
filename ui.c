@@ -12,9 +12,9 @@
 #include "term.h"
 #include "clipboard.h"
 #include "utf8.h"
+#include "menu.h"
+#include "options.h"
 #include "ui.h"
-
-static const int menu_positions[4] = {0, 6, 12, 20};  // X position of each menu
 
 void draw_status_line() {
     char buf[SCREEN_WIDTH + 1];
@@ -51,8 +51,6 @@ void draw_status_line() {
 }
 
 void draw_menu_bar() {
-    const char *menus[] = {"File", "Edit", "Search", "Options"};
-
     fb_gotoxy(0, 0);
 
     // Draw entire menu bar with spaces
@@ -60,15 +58,15 @@ void draw_menu_bar() {
     memset(blank, ' ', SCREEN_WIDTH);
     fb_write(blank, SCREEN_WIDTH);
 
-    // Draw each menu item
-    for (int i = 0; i < 4; i++) {
-        fb_gotoxy(menu_positions[i], 0);
+    // Draw each menu title
+    for (int i = 0; i < MENU_COUNT; i++) {
+        fb_gotoxy(menus[i].x, 0);
 
         if (editor.menu_active && editor.selected_menu == i) {
-            // Highlighted (inverse video): black on white
-            fb_printf("\x1b[7m%s\x1b[0m", menus[i]);
+            // Highlighted (inverse video)
+            fb_printf("\x1b[7m%s%s", menus[i].title, options_base_sgr());
         } else {
-            fb_printf("%s", menus[i]);
+            fb_printf("%s", menus[i].title);
         }
     }
 
@@ -77,36 +75,40 @@ void draw_menu_bar() {
     fb_puts("EDIT");
 }
 
-/* File menu items. Index order matters: it's used by run_file_item(). */
-static const char *file_items[FILE_ITEM_COUNT] = {"New", "Open...", "Save", "Save As...", "Exit"};
-static const char *file_hints[FILE_ITEM_COUNT] = {"Ctrl+N", "Ctrl+O", "Ctrl+S", "", "Ctrl+Q"};
-const char file_mnemonics[] = "NOSAX";   // Letter shortcut for each item
-
-/* Search menu items. Index order matches run_search_item() in edit.c. */
-static const char *search_items[SEARCH_ITEM_COUNT] = {"Find", "Find Next", "Replace", "Go to Line"};
-static const char *search_hints[SEARCH_ITEM_COUNT] = {"Ctrl+F", "F3", "Ctrl+R", "Ctrl+G"};
-const char search_mnemonics[] = "FNRG";
+/* Item text: the fixed label, or the live value for Options items. */
+static const char *item_label(const MenuItem *it, char *buf, int size) {
+    if (!it->dynamic) return it->label;
+    options_label(it->action, buf, size);
+    return buf;
+}
 
 void draw_dropdown() {
     if (!editor.dropdown_open) return;
 
-    const char **items, **hints;
-    int count;
-    if (editor.selected_menu == 0) {
-        items = file_items; hints = file_hints; count = FILE_ITEM_COUNT;
-    } else if (editor.selected_menu == 2) {
-        items = search_items; hints = search_hints; count = SEARCH_ITEM_COUNT;
-    } else {
-        return;
-    }
+    const Menu *m = &menus[editor.selected_menu];
+    char buf[64];
 
-    int x = menu_positions[editor.selected_menu];
-    for (int i = 0; i < count; i++) {
+    /* Column widths fit the longest label and hint in this menu */
+    int label_w = 0, hint_w = 0;
+    for (int i = 0; i < m->count; i++) {
+        int l = (int)strlen(item_label(&m->items[i], buf, sizeof(buf)));
+        int h = (int)strlen(m->items[i].hint);
+        if (l > label_w) label_w = l;
+        if (h > hint_w) hint_w = h;
+    }
+    int width = 1 + label_w + 2 + hint_w + 1;
+
+    int x = m->x;
+    if (x + width > SCREEN_WIDTH) x = SCREEN_WIDTH - width;
+
+    for (int i = 0; i < m->count; i++) {
+        const char *label = item_label(&m->items[i], buf, sizeof(buf));
         fb_gotoxy(x, 1 + i);
 
-        if (i == editor.selected_item) fb_printf("\x1b[7m"); // highlight
-        fb_printf(" %-10s %-7s ", items[i], hints[i]);
-        if (i == editor.selected_item) fb_printf("\x1b[0m");
+        int hl = (i == editor.selected_item);
+        if (hl) fb_puts("\x1b[7m");   // highlight
+        fb_printf(" %-*s  %-*s ", label_w, label, hint_w, m->items[i].hint);
+        if (hl) fb_puts(options_base_sgr());
     }
 }
 
@@ -138,7 +140,7 @@ static void draw_row(int file_line, int has_sel, int sy1, int sx1, int sy2, int 
                     selected = pos >= from && pos < to;
                 }
                 if (selected != hl) {
-                    fb_puts(selected ? "\x1b[7m" : "\x1b[0m");
+                    fb_puts(selected ? "\x1b[7m" : options_base_sgr());
                     hl = selected;
                 }
                 while (out < start - editor.scroll_x) { fb_write(" ", 1); out++; }
@@ -158,7 +160,7 @@ static void draw_row(int file_line, int has_sel, int sy1, int sx1, int sy2, int 
         }
     }
 
-    if (hl) fb_puts("\x1b[0m");
+    if (hl) fb_puts(options_base_sgr());
     while (out < SCREEN_WIDTH) { fb_write(" ", 1); out++; }
 }
 
@@ -176,11 +178,15 @@ void draw_editor_area() {
 void refresh_screen() {
     fb_reset();
     fb_puts("\x1b[?25l");   // hide cursor while drawing
+    fb_puts(options_base_sgr());
 
     draw_menu_bar();
     draw_editor_area();
     draw_dropdown();
     draw_status_line();
+
+    /* Leave the color scheme active so message and prompt rows match */
+    fb_puts(options_base_sgr());
 
     Line *cur = &editor.lines[editor.cursor_y];
     int screen_x = utf8_col(cur->text, cur->len, editor.cursor_x) - editor.scroll_x;
@@ -274,6 +280,8 @@ void show_help(void) {
     printf("  Enter           - Select menu item\n");
     printf("  N/O/S/A/X       - Pick File menu item (New/Open/Save/Save As/Exit)\n");
     printf("  F/N/R/G         - Pick Search menu item (Find/Find Next/Replace/Go to Line)\n");
+    printf("  U/R/X/C/P/A     - Pick Edit menu item (Undo/Redo/Cut/Copy/Paste/Select All)\n");
+    printf("  T/L/C           - Options: tab width / line endings / colors (menu stays open)\n");
     printf("  Open (O)        - Browse folders (Enter=open, T=type a name)\n");
     printf("  ESC             - Close menu\n\n");
     printf("Keyboard Shortcuts:\n");
@@ -282,6 +290,7 @@ void show_help(void) {
     printf("  Ctrl+S          - Save file\n");
     printf("  Ctrl+Z / Ctrl+Y - Undo / Redo\n");
     printf("  Ctrl+X/C/V      - Cut / Copy / Paste\n");
+    printf("  Ctrl+A          - Select all\n");
     printf("  Ctrl+F / F3     - Find / Find next\n");
     printf("  Ctrl+R          - Replace (Y/N/A=all, Esc=stop)\n");
     printf("  Ctrl+G          - Go to line\n");
@@ -293,7 +302,7 @@ void show_help(void) {
     printf("  Delete          - Delete character\n");
     printf("  Backspace       - Backspace\n");
     printf("  Enter           - New line\n");
-    printf("  Tab             - Insert 4 spaces\n\n");
+    printf("  Tab             - Insert spaces (tab width in Options)\n\n");
     printf("Files are read and saved as UTF-8.\n\n");
     printf("Press any key to continue...");
     fflush(stdout);

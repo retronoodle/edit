@@ -23,6 +23,14 @@ void sel_clear(void) {
     editor.sel_active = 0;
 }
 
+void sel_select_all(void) {
+    editor.sel_active = 1;
+    editor.sel_x = 0;
+    editor.sel_y = 0;
+    editor.cursor_y = editor.line_count - 1;
+    editor.cursor_x = editor.lines[editor.cursor_y].len;
+}
+
 int sel_range(int *y1, int *x1, int *y2, int *x2) {
     if (!editor.sel_active) return 0;
 
