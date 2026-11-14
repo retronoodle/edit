@@ -18,30 +18,56 @@
 #include "syntax.h"
 #include "options.h"
 #include "tabs.h"
+#include "gitinfo.h"
 #include "ui.h"
+
+/* Appends " | part" to out (the first part gets no separator). */
+static void add_status_part(char *out, size_t size, const char *part) {
+    if (out[0]) strncat(out, " | ", size - strlen(out) - 1);
+    strncat(out, part, size - strlen(out) - 1);
+}
+
+/* Left side of the status line. Level 0 has every part; higher levels drop
+   the directory, then the branch, then the F1 hint. */
+static void build_status_left(char *out, size_t size, int level, const char *pos,
+                              const GitInfo *gi) {
+    out[0] = '\0';
+    if (level < 3) add_status_part(out, size, "F1=Help");
+    add_status_part(out, size, pos);
+    if (level < 2 && gi->branch[0]) add_status_part(out, size, gi->branch);
+    if (level < 1 && gi->dir[0]) add_status_part(out, size, gi->dir);
+}
 
 void draw_status_line() {
     char buf[screen_w + 1];
     memset(buf, ' ', screen_w);
     buf[screen_w] = '\0';
 
-    char left[256];
+    char pos[64];
     Line *cur = &editor.lines[editor.cursor_y];
-    snprintf(left, sizeof(left), "F1=Help | Line:%d Col:%d %s %s",
+    snprintf(pos, sizeof(pos), "Line:%d Col:%d %s %s",
              editor.cursor_y + 1,
              utf8_col(cur->text, cur->len, editor.cursor_x) + 1,
              editor.insert_mode ? "INS" : "OVR",
              editor.modified ? "*" : "");
-
-    int left_len = (int)strlen(left);
-    if (left_len > screen_w) left_len = screen_w;
-    memcpy(buf, left, left_len);
 
     int fname_only_len = (int)strlen(editor.filename);
     int fname_len_with_space = fname_only_len + 1;
     if (fname_len_with_space > screen_w) fname_len_with_space = screen_w;
     int start = screen_w - fname_len_with_space;
     if (start < 0) start = 0;
+
+    /* Pick the fullest left side that fits before the filename. */
+    const GitInfo *gi = gitinfo_get();
+    char left[GIT_DIR_MAX + 256];
+    for (int level = 0; level < 4; level++) {
+        build_status_left(left, sizeof(left), level, pos, gi);
+        if ((int)strlen(left) <= start) break;
+    }
+
+    int left_len = (int)strlen(left);
+    if (left_len > start) left_len = start;
+    memcpy(buf, left, left_len);
 
     if (start < screen_w) {
         buf[start] = ' ';
