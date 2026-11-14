@@ -2,7 +2,7 @@
 #ifndef MENU_H
 #define MENU_H
 
-/* Actions a menu item can trigger. edit.c runs them. */
+/* Actions a menu item can trigger. velo.c runs them. */
 enum {
     ACT_NONE = 0,
     ACT_NEW, ACT_OPEN, ACT_RECENT, ACT_SAVE, ACT_SAVE_AS, ACT_CLOSE_TAB, ACT_NEXT_TAB, ACT_PREV_TAB, ACT_EXIT,

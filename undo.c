@@ -19,7 +19,7 @@ static int in_compound = 0;      /* between undo_begin_group and undo_end_group 
 static int compound_group = 0;   /* group id shared by every op in the compound step */
 
 static void die_oom(void) {
-    fprintf(stderr, "edit: out of memory\n");
+    fprintf(stderr, "velo: out of memory\n");
     exit(1);
 }
 

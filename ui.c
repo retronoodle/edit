@@ -127,10 +127,10 @@ void draw_menu_bar() {
         fb_puts(menus[i].title + 1);
     }
 
-    // "EDIT" on the right side
+    // "VELO" on the right side
     fb_gotoxy(screen_w - 4, 0);
     fb_puts(options_chrome_sgr(CH_BAR_SEL));
-    fb_puts("EDIT");
+    fb_puts("VELO");
     fb_puts(options_base_sgr());
 }
 
@@ -475,7 +475,7 @@ int prompt_line(const char *msg, char *buf, int size) {
 
 void show_help(void) {
     clear_screen();
-    printf("EDIT Help\n\n");
+    printf("VELO Help\n\n");
     printf("Menu Access:\n");
     printf("  F10 or Alt      - Activate menu bar\n");
     printf("  Alt+F           - Open File menu\n");

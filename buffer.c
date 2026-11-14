@@ -14,7 +14,7 @@ Editor editor;
 /* ---- Growable line storage: no fixed limit on lines or line length ---- */
 
 static void die_oom(void) {
-    fprintf(stderr, "edit: out of memory\n");
+    fprintf(stderr, "velo: out of memory\n");
     exit(1);
 }
 

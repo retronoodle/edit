@@ -21,13 +21,23 @@ static int same_path(const char *a, const char *b) {
 #endif
 }
 
-/* Builds the path of the list file in the user's home folder. */
-static int list_file_path(char *buf, size_t size) {
+/* Builds the path of the list file in the user's home folder.
+   `name` is the file name inside that folder. */
+static int home_file_path(const char *name, char *buf, size_t size) {
     const char *home = getenv("USERPROFILE");
     if (!home) home = getenv("HOME");
     if (!home) return 0;
-    snprintf(buf, size, "%s/.edit_recent", home);
+    snprintf(buf, size, "%s/%s", home, name);
     return 1;
+}
+
+static int list_file_path(char *buf, size_t size) {
+    return home_file_path(".velo_recent", buf, size);
+}
+
+/* Pre-rename list file, read once if the new one does not exist yet. */
+static int old_list_file_path(char *buf, size_t size) {
+    return home_file_path(".edit_recent", buf, size);
 }
 
 static void recent_save(void) {
@@ -46,7 +56,12 @@ void recent_load(void) {
     count = 0;
     if (!list_file_path(path, sizeof(path))) return;
     FILE *f = fopen(path, "rb");
-    if (!f) return;
+    if (!f) {
+        /* First run after the rename: take over the old list */
+        if (!old_list_file_path(path, sizeof(path))) return;
+        f = fopen(path, "rb");
+        if (!f) return;
+    }
     char line[PATH_LEN];
     while (count < MAX_RECENT && fgets(line, sizeof(line), f)) {
         size_t n = strlen(line);
