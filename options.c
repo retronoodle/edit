@@ -4,7 +4,7 @@
 #include "menu.h"
 #include "options.h"
 
-Options options = {4, 0, 0, 0};
+Options options = {4, 0, 0, 0, 1};
 
 static const char *scheme_names[] = {"Default", "Blue", "Light"};
 
@@ -29,6 +29,9 @@ void options_cycle(int action) {
         case ACT_LINE_NUMBERS:
             options.line_numbers = !options.line_numbers;
             break;
+        case ACT_SYNTAX:
+            options.syntax = !options.syntax;
+            break;
     }
 }
 
@@ -45,6 +48,9 @@ void options_label(int action, char *buf, int size) {
             break;
         case ACT_LINE_NUMBERS:
             snprintf(buf, size, "Line numbers: %s", options.line_numbers ? "On" : "Off");
+            break;
+        case ACT_SYNTAX:
+            snprintf(buf, size, "Syntax: %s", options.syntax ? "On" : "Off");
             break;
         default:
             if (size > 0) buf[0] = '\0';

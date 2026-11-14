@@ -42,6 +42,7 @@ static const MenuItem options_items[] = {
     {NULL, "", 'L', ACT_LINE_ENDS,    1, 1},
     {NULL, "", 'C', ACT_COLOR_SCHEME, 1, 1},
     {NULL, "", 'N', ACT_LINE_NUMBERS, 1, 1},
+    {NULL, "", 'Y', ACT_SYNTAX,       1, 1},
 };
 
 const Menu menus[MENU_COUNT] = {

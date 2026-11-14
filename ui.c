@@ -1,5 +1,6 @@
 /* Screen drawing: status line, menus, editor area, messages and help. */
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #ifdef _WIN32
@@ -13,6 +14,8 @@
 #include "clipboard.h"
 #include "utf8.h"
 #include "menu.h"
+#include "options.h"
+#include "syntax.h"
 #include "options.h"
 #include "tabs.h"
 #include "ui.h"
@@ -143,8 +146,25 @@ int text_w(void) {
    display columns; each character is drawn whole, so wide characters take
    two cells and never split. Control and invalid bytes show as '?'.
    The line number (if shown) sits in the gutter and is not part of the text. */
-static void draw_row(int file_line, int has_sel, int sy1, int sx1, int sy2, int sx2) {
+/* Per-byte token kinds for the line being drawn. Grown on demand; NULL if out of memory. */
+static unsigned char *kind_buf = NULL;
+static int kind_cap = 0;
+
+static unsigned char *kind_buffer(int n) {
+    if (n > kind_cap) {
+        unsigned char *p = realloc(kind_buf, (size_t)n * 2);
+        if (!p) return NULL;
+        kind_buf = p;
+        kind_cap = n * 2;
+    }
+    return kind_buf;
+}
+
+/* Draws one screen row of a file line. kinds (may be NULL) gives the token kind of each byte.
+   Selection (reverse video) wins over token colors. */
+static void draw_row(int file_line, const unsigned char *kinds, int has_sel, int sy1, int sx1, int sy2, int sx2) {
     int hl = 0;      /* 1 while drawing reverse video */
+    int cur_kind = TK_PLAIN;   /* token color currently set (when not reversed) */
     int out = 0;     /* text cells emitted so far */
     int gw = gutter_w();
     int tw = text_w();
@@ -178,9 +198,12 @@ static void draw_row(int file_line, int has_sel, int sy1, int sx1, int sy2, int 
                     int to = (file_line == sy2) ? sx2 : ln->len;
                     selected = pos >= from && pos < to;
                 }
-                if (selected != hl) {
-                    fb_puts(selected ? "\x1b[7m" : options_base_sgr());
+                int kind = kinds ? kinds[pos] : TK_PLAIN;
+                if (selected != hl || (!selected && kind != cur_kind)) {
+                    if (selected) fb_puts("\x1b[7m");
+                    else fb_puts(kind == TK_PLAIN ? options_base_sgr() : syntax_sgr(kind, options.scheme));
                     hl = selected;
+                    cur_kind = kind;
                 }
                 while (out < start - editor.scroll_x) { fb_write(" ", 1); out++; }
 
@@ -199,7 +222,7 @@ static void draw_row(int file_line, int has_sel, int sy1, int sx1, int sy2, int 
         }
     }
 
-    if (hl) fb_puts(options_base_sgr());
+    if (hl || cur_kind != TK_PLAIN) fb_puts(options_base_sgr());
     while (out < tw) { fb_write(" ", 1); out++; }
 }
 
@@ -230,10 +253,32 @@ void draw_editor_area() {
     int has_sel, sy1 = 0, sx1 = 0, sy2 = 0, sx2 = 0;
     has_sel = sel_range(&sy1, &sx1, &sy2, &sx2);
 
+    /* Token colors need the parser state at the top visible line, so scan the lines above it first.
+       The scan runs again each redraw; it is cheap next to the terminal output. */
+    SynLang lang = options.syntax ? syntax_lang_for(editor.filename) : SYN_PLAIN;
+    int st = SYN_ST_NONE;
+    if (lang != SYN_PLAIN) {
+        for (int f = 0; f < editor.scroll_y && f < editor.line_count; f++) {
+            const Line *ln = &editor.lines[f];
+            unsigned char *kb = kind_buffer(ln->len);
+            if (ln->len > 0 && !kb) { lang = SYN_PLAIN; break; }   /* out of memory: plain text */
+            st = syntax_scan_line(lang, st, ln->text, ln->len, kb);
+        }
+    }
+
     for (int screen_row = TEXT_TOP; screen_row <= screen_h - 3; screen_row++) {
         fb_gotoxy(0, screen_row);
         int file_line = screen_row - TEXT_TOP + editor.scroll_y;
-        draw_row(file_line, has_sel, sy1, sx1, sy2, sx2);
+        const unsigned char *kinds = NULL;
+        if (lang != SYN_PLAIN && file_line < editor.line_count) {
+            const Line *ln = &editor.lines[file_line];
+            unsigned char *kb = kind_buffer(ln->len);
+            if (kb) {
+                st = syntax_scan_line(lang, st, ln->text, ln->len, kb);
+                kinds = kb;
+            }
+        }
+        draw_row(file_line, kinds, has_sel, sy1, sx1, sy2, sx2);
     }
 
     /* Message row: left blank here; messages are printed over it */

@@ -3,3 +3,5 @@ edit
 *.o
 test_utf8
 test_utf8.exe
+test_syntax
+test_syntax.exe

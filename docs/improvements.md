@@ -48,7 +48,8 @@ What the editor needs to move from a DOS-style toy to something that feels curre
   - Limits: 16 tabs at most; the tab bar scrolls to keep the active tab visible but shows no overflow marker; crash-recovery restore at startup only offers the first tab; a tab label is cut to 20 characters; two tabs can end up on the same file if you Save As onto a name open in another tab.
 - ~~**Better file operations**~~ (done): Ctrl+E / File > Recent Files lists the last 10 files opened or saved (kept in `~/.edit_recent`; missing files are dropped when picked). Save As now uses the folder browser with a name field and asks before overwriting. Open browser: R jumps to recent. Lives in `files.c` (`browse`, `do_open_recent`) and `recent.c`.
   - Limits: the recent list is per user, not per folder; paths are compared without case on Windows; the name field takes typed characters only (no paste).
-- **Syntax highlighting**: at least basic keyword and comment coloring.
+- ~~**Syntax highlighting**~~ (done): keywords, comments, strings and numbers. Languages picked by extension: C/C++, JS/TS, PHP, Python, JSON, Markdown (headings), INI. Options > Syntax turns it off. Colors follow the Default/Blue/Light scheme. Lives in `syntax.c` (scanners), drawn from `ui.c` (`draw_row`).
+  - Limits: no per-file override; the file is rescanned from the top on every redraw (fine for thousands of lines, not checked on very large files); no highlighting for Markdown inline code/bold, or for JSON/INI beyond the basics; the language follows the file name, so it changes on Save As.
 - **Statusline** current dir, current branch (if any) line and col # 
 - add colors, lines, separators to the ui
 

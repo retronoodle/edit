@@ -63,6 +63,7 @@ static int run_action(int action) {
         case ACT_LINE_ENDS:
         case ACT_COLOR_SCHEME:
         case ACT_LINE_NUMBERS:
+        case ACT_SYNTAX:
             options_cycle(action);
             break;
     }
