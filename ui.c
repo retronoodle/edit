@@ -21,28 +21,32 @@
 #include "gitinfo.h"
 #include "ui.h"
 
-/* Appends " | part" to out (the first part gets no separator). */
-static void add_status_part(char *out, size_t size, const char *part) {
-    if (out[0]) strncat(out, " | ", size - strlen(out) - 1);
+/* Separator between status parts: a thin box-drawing bar (UTF-8, one cell). */
+#define STATUS_SEP " \xe2\x94\x82 "
+
+/* Appends a separator and part to out (the first part gets no separator).
+   Returns the byte offset where the part starts. */
+static size_t add_status_part(char *out, size_t size, const char *part) {
+    if (out[0]) strncat(out, STATUS_SEP, size - strlen(out) - 1);
+    size_t at = strlen(out);
     strncat(out, part, size - strlen(out) - 1);
+    return at;
 }
 
 /* Left side of the status line. Level 0 has every part; higher levels drop
-   the directory, then the branch, then the F1 hint. */
+   the directory, then the branch, then the F1 hint. branch_at gets the byte
+   offset of the branch text, or -1 if it is not shown. */
 static void build_status_left(char *out, size_t size, int level, const char *pos,
-                              const GitInfo *gi) {
+                              const GitInfo *gi, int *branch_at) {
     out[0] = '\0';
+    *branch_at = -1;
     if (level < 3) add_status_part(out, size, "F1=Help");
     add_status_part(out, size, pos);
-    if (level < 2 && gi->branch[0]) add_status_part(out, size, gi->branch);
+    if (level < 2 && gi->branch[0]) *branch_at = (int)add_status_part(out, size, gi->branch);
     if (level < 1 && gi->dir[0]) add_status_part(out, size, gi->dir);
 }
 
 void draw_status_line() {
-    char buf[screen_w + 1];
-    memset(buf, ' ', screen_w);
-    buf[screen_w] = '\0';
-
     char pos[64];
     Line *cur = &editor.lines[editor.cursor_y];
     snprintf(pos, sizeof(pos), "Line:%d Col:%d %s %s",
@@ -57,52 +61,77 @@ void draw_status_line() {
     int start = screen_w - fname_len_with_space;
     if (start < 0) start = 0;
 
-    /* Pick the fullest left side that fits before the filename. */
+    /* Pick the fullest left side that fits before the filename (in cells). */
     const GitInfo *gi = gitinfo_get();
     char left[GIT_DIR_MAX + 256];
+    int branch_at = -1;
     for (int level = 0; level < 4; level++) {
-        build_status_left(left, sizeof(left), level, pos, gi);
-        if ((int)strlen(left) <= start) break;
+        build_status_left(left, sizeof(left), level, pos, gi, &branch_at);
+        if (utf8_width(left, (int)strlen(left)) <= start) break;
     }
 
     int left_len = (int)strlen(left);
-    if (left_len > start) left_len = start;
-    memcpy(buf, left, left_len);
+    if (left_len > start) left_len = start;   /* only ASCII is cut here (the lowest level) */
+    int cells = utf8_width(left, left_len);
 
+    const char *base = options_chrome_sgr(CH_STATUS);
+    fb_gotoxy(0, screen_h - 1);
+    fb_puts(base);
+
+    /* Left side, with the branch in its own color */
+    int bl = branch_at >= 0 ? (int)strlen(gi->branch) : 0;
+    if (branch_at >= 0 && branch_at + bl <= left_len) {
+        fb_write(left, branch_at);
+        fb_puts(options_chrome_sgr(CH_BRANCH));
+        fb_write(left + branch_at, bl);
+        fb_puts(base);
+        fb_write(left + branch_at + bl, left_len - branch_at - bl);
+    } else {
+        fb_write(left, left_len);
+    }
+    for (; cells < start; cells++) fb_write(" ", 1);
+
+    /* Filename, bold, after one space */
+    int written = start;
     if (start < screen_w) {
-        buf[start] = ' ';
+        fb_write(" ", 1);
         int copy = screen_w - start - 1;
         if (copy > fname_only_len) copy = fname_only_len;
-        memcpy(&buf[start + 1], editor.filename, copy);
+        fb_puts("\x1b[1m");
+        fb_write(editor.filename, copy);
+        fb_puts(base);
+        written = start + 1 + copy;
     }
-
-    fb_gotoxy(0, screen_h - 1);
-    fb_write(buf, screen_w);
+    for (; written < screen_w; written++) fb_write(" ", 1);
 }
 
 void draw_menu_bar() {
+    const char *bar = options_chrome_sgr(CH_BAR);
     fb_gotoxy(0, 0);
 
-    // Draw entire menu bar with spaces
+    // Fill the bar with the chrome color
     char blank[screen_w];
     memset(blank, ' ', screen_w);
+    fb_puts(bar);
     fb_write(blank, screen_w);
 
-    // Draw each menu title
+    // Draw each menu title; the open one uses its own color, the first letter is bold
     for (int i = 0; i < MENU_COUNT; i++) {
         fb_gotoxy(menus[i].x, 0);
-
-        if (editor.menu_active && editor.selected_menu == i) {
-            // Highlighted (inverse video)
-            fb_printf("\x1b[7m%s%s", menus[i].title, options_base_sgr());
-        } else {
-            fb_printf("%s", menus[i].title);
-        }
+        const char *sgr = (editor.menu_active && editor.selected_menu == i)
+                              ? options_chrome_sgr(CH_BAR_SEL) : bar;
+        fb_puts(sgr);
+        fb_puts("\x1b[1m");
+        fb_write(menus[i].title, 1);
+        fb_puts(sgr);
+        fb_puts(menus[i].title + 1);
     }
 
-    // Draw "EDIT" on the right side
+    // "EDIT" on the right side
     fb_gotoxy(screen_w - 4, 0);
+    fb_puts(options_chrome_sgr(CH_BAR_SEL));
     fb_puts("EDIT");
+    fb_puts(options_base_sgr());
 }
 
 /* Item text: the fixed label, or the live value for Options items. */
@@ -126,10 +155,11 @@ static void dropdown_widths(int which, int *label_w, int *hint_w) {
     }
 }
 
+/* Outer box: row 1 is the top border, items are on rows 2.., the bottom border follows. */
 void dropdown_rect(int which, int *x, int *w) {
     int label_w, hint_w;
     dropdown_widths(which, &label_w, &hint_w);
-    *w = 1 + label_w + 2 + hint_w + 1;
+    *w = 1 + label_w + 2 + hint_w + 1 + 2;   /* inner text plus the two side borders */
     *x = menus[which].x;
     if (*x + *w > screen_w) *x = screen_w - *w;
 }
@@ -142,26 +172,53 @@ void draw_dropdown() {
     int label_w, hint_w, x, width;
     dropdown_widths(editor.selected_menu, &label_w, &hint_w);
     dropdown_rect(editor.selected_menu, &x, &width);
+    const char *base = options_base_sgr();
+    const char *dim = options_chrome_sgr(CH_DIM);
+    const char *sel = options_chrome_sgr(CH_DROP_SEL);
+
+    /* Top border */
+    fb_gotoxy(x, 1);
+    fb_puts(dim);
+    fb_puts("\xe2\x94\x8c");                         /* top-left corner */
+    for (int k = 0; k < width - 2; k++) fb_puts("\xe2\x94\x80");   /* horizontal line */
+    fb_puts("\xe2\x94\x90");                         /* top-right corner */
+    fb_puts(base);
 
     for (int i = 0; i < m->count; i++) {
         const char *label = item_label(&m->items[i], buf, sizeof(buf));
-        fb_gotoxy(x, 1 + i);
-
         int hl = (i == editor.selected_item);
-        if (hl) fb_puts("\x1b[7m");   // highlight
-        fb_printf(" %-*s  %-*s ", label_w, label, hint_w, m->items[i].hint);
-        if (hl) fb_puts(options_base_sgr());
+        fb_gotoxy(x, 2 + i);
+
+        fb_puts(dim);
+        fb_puts("\xe2\x94\x82");                     /* left side */
+        fb_puts(hl ? sel : base);
+        fb_printf(" %-*s  ", label_w, label);
+        fb_puts(hl ? sel : dim);
+        fb_printf("%-*s", hint_w, m->items[i].hint);
+        fb_puts(hl ? sel : base);
+        fb_puts(" ");
+        fb_puts(dim);
+        fb_puts("\xe2\x94\x82");                     /* right side */
+        fb_puts(base);
     }
+
+    /* Bottom border */
+    fb_gotoxy(x, 2 + m->count);
+    fb_puts(dim);
+    fb_puts("\xe2\x94\x94");                         /* bottom-left corner */
+    for (int k = 0; k < width - 2; k++) fb_puts("\xe2\x94\x80");
+    fb_puts("\xe2\x94\x98");                         /* bottom-right corner */
+    fb_puts(base);
 }
 
-/* Width of the line-number gutter: digits for the last line number (at least 3)
-   plus one space. 0 when line numbers are off. */
+/* Width of the line-number gutter: digits for the last line number (at least 3),
+   one space, then a separator bar. 0 when line numbers are off. */
 int gutter_w(void) {
     if (!options.line_numbers) return 0;
     int digits = 1, n = editor.line_count;
     while (n >= 10) { digits++; n /= 10; }
     if (digits < 3) digits = 3;   /* keeps the gutter from jumping on short files */
-    return digits + 1;
+    return digits + 2;
 }
 
 int text_w(void) {
@@ -196,12 +253,11 @@ static void draw_row(int file_line, const unsigned char *kinds, int has_sel, int
     int tw = text_w();
 
     if (gw) {
-        if (file_line < editor.line_count) {
-            fb_printf("\x1b[2m%*d ", gw - 1, file_line + 1);   /* dim number */
-            fb_puts(options_base_sgr());
-        } else {
-            fb_printf("%*s", gw, "");
-        }
+        fb_puts(options_chrome_sgr(CH_DIM));
+        if (file_line < editor.line_count) fb_printf("%*d ", gw - 2, file_line + 1);
+        else fb_printf("%*s ", gw - 2, "");
+        fb_puts("\xe2\x94\x82");                    /* separator bar */
+        fb_puts(options_base_sgr());
     }
 
     if (file_line < editor.line_count) {
@@ -258,21 +314,33 @@ static void draw_tab_bar(void) {
     char label[64];
     tab_bar_range(&first, &end);
 
+    const char *bar = options_chrome_sgr(CH_TAB_BAR);
     fb_gotoxy(0, TAB_ROW);
+    fb_puts(bar);
     for (int i = first; i < end; i++) {
         int n = tab_bar_label(i, label, sizeof(label));
         int w = utf8_width(label, n);
         if (x + w > screen_w) break;
         int active = (i == tab_current());
-        if (active) fb_puts("\x1b[7m");
-        fb_write(label, n);
-        if (active) fb_puts(options_base_sgr());
+        const char *sgr = active ? options_chrome_sgr(CH_TAB_ACT) : bar;
+        fb_puts(sgr);
+        /* Labels end with "* " when the tab has unsaved changes: color the marker */
+        int marked = n >= 2 && label[n - 2] == '*';
+        fb_write(label, marked ? n - 2 : n);
+        if (marked) {
+            fb_puts(options_chrome_sgr(CH_WARN));
+            fb_write(label + n - 2, 1);
+            fb_puts(sgr);
+            fb_write(label + n - 1, 1);
+        }
         x += w;
     }
+    fb_puts(bar);
     while (x < screen_w) {
         fb_write(" ", 1);
         x++;
     }
+    fb_puts(options_base_sgr());
 }
 
 void draw_editor_area() {

@@ -92,10 +92,14 @@ static int menu_click(const MouseEvent *ev) {
         int x, w;
         dropdown_rect(editor.selected_menu, &x, &w);
         int count = menus[editor.selected_menu].count;
-        if (ev->y >= 1 && ev->y <= count && ev->x >= x && ev->x < x + w) {
-            /* Same as moving to the item and pressing Enter */
-            editor.selected_item = ev->y - 1;
-            return menu_handle_key(KEY_ENTER);
+        /* Box: top border on row 1, items on rows 2..count+1, bottom border after */
+        if (ev->y >= 1 && ev->y <= count + 2 && ev->x >= x && ev->x < x + w) {
+            if (ev->y >= 2 && ev->y <= count + 1) {
+                /* Same as moving to the item and pressing Enter */
+                editor.selected_item = ev->y - 2;
+                return menu_handle_key(KEY_ENTER);
+            }
+            return ACT_NONE;   /* a click on the frame keeps the menu open */
         }
     }
 

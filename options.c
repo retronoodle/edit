@@ -61,3 +61,47 @@ void options_label(int action, char *buf, int size) {
 const char *options_base_sgr(void) {
     return scheme_sgr[options.scheme];
 }
+
+/* Chrome colors, indexed [scheme][ChromeKind]; order matches the enum. */
+static const char *chrome_sgr[3][CH_COUNT] = {
+    /* Default: terminal colors, reverse video for bars */
+    {
+        "\x1b[0;7m",        /* CH_BAR */
+        "\x1b[0;1m",        /* CH_BAR_SEL */
+        "\x1b[0m",          /* CH_TAB_BAR */
+        "\x1b[0;7m",        /* CH_TAB_ACT */
+        "\x1b[0;7m",        /* CH_STATUS */
+        "\x1b[0;7;1m",      /* CH_BRANCH */
+        "\x1b[1;33m",       /* CH_WARN */
+        "\x1b[0;2m",        /* CH_DIM */
+        "\x1b[0;7m",        /* CH_DROP_SEL */
+    },
+    /* Blue: cyan bars on blue */
+    {
+        "\x1b[0;30;46m",    /* CH_BAR */
+        "\x1b[0;1;37;44m",  /* CH_BAR_SEL */
+        "\x1b[0;36;44m",    /* CH_TAB_BAR */
+        "\x1b[0;1;30;46m",  /* CH_TAB_ACT */
+        "\x1b[0;30;46m",    /* CH_STATUS */
+        "\x1b[0;1;34;46m",  /* CH_BRANCH */
+        "\x1b[1;31m",       /* CH_WARN */
+        "\x1b[0;36;44m",    /* CH_DIM */
+        "\x1b[0;30;46m",    /* CH_DROP_SEL */
+    },
+    /* Light: blue bars on white */
+    {
+        "\x1b[0;97;44m",    /* CH_BAR */
+        "\x1b[0;1;30;47m",  /* CH_BAR_SEL */
+        "\x1b[0;30;100m",   /* CH_TAB_BAR */
+        "\x1b[0;1;97;44m",  /* CH_TAB_ACT */
+        "\x1b[0;97;44m",    /* CH_STATUS */
+        "\x1b[0;1;93;44m",  /* CH_BRANCH */
+        "\x1b[1;31m",       /* CH_WARN */
+        "\x1b[0;90;47m",    /* CH_DIM */
+        "\x1b[0;97;44m",    /* CH_DROP_SEL */
+    },
+};
+
+const char *options_chrome_sgr(ChromeKind kind) {
+    return chrome_sgr[options.scheme][kind];
+}

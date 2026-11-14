@@ -52,7 +52,8 @@ What the editor needs to move from a DOS-style toy to something that feels curre
   - Limits: no per-file override; the file is rescanned from the top on every redraw (fine for thousands of lines, not checked on very large files); no highlighting for Markdown inline code/bold, or for JSON/INI beyond the basics; the language follows the file name, so it changes on Save As.
 - ~~**Statusline**~~ (done): shows line and col, INS/OVR, modified flag, the current folder (home shortened to `~`) and the git branch (short hash when detached; hidden outside a repo). Narrow windows drop the folder, then the branch, then the F1 hint; the filename stays on the right. Lives in `gitinfo.c` (reads `.git` files directly, cached and refreshed every 2 s) and `ui.c` (`draw_status_line`).
   - Limits: widths are counted in bytes, so non-ASCII folder names can be cut short on the status line.
-- **eye candy* add colors, lines, separators to the ui
+- ~~**Eye candy**~~ (done): chrome colors per scheme (`options_chrome_sgr` in `options.c`): colored menu bar with bold mnemonics, tab bar background with the active tab highlighted and `*` in the warning color, status line with a `│` separator and the branch in its own color, a box-drawn dropdown, and a `│` line between the line-number gutter and the text. Lives in `ui.c`.
+  - Limits: menu separators are not drawn (items are not separate rows); the status line `*` is not colored; box-drawing characters need a UTF-8 console (set by the editor on Windows); the file browser and recent list still use the plain highlight.
 
 
 ## Nice to Have (Polish)

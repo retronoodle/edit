@@ -21,4 +21,22 @@ void options_label(int action, char *buf, int size);
 /* SGR sequence that resets attributes and sets the current color scheme. Use it instead of a plain reset. */
 const char *options_base_sgr(void);
 
+/* Colors for the screen chrome (bars, tabs, status line, borders), per scheme. */
+typedef enum {
+    CH_BAR,       /* menu bar */
+    CH_BAR_SEL,   /* open menu title */
+    CH_TAB_BAR,   /* tab bar background and inactive tabs */
+    CH_TAB_ACT,   /* active tab */
+    CH_STATUS,    /* status line */
+    CH_BRANCH,    /* git branch on the status line */
+    CH_WARN,      /* unsaved-changes marker (fg only, keeps the background) */
+    CH_DIM,       /* borders, line-number gutter, hints */
+    CH_DROP_SEL,  /* highlighted dropdown item */
+    CH_COUNT
+} ChromeKind;
+
+/* SGR for a chrome element in the current scheme. Each starts with a reset,
+   except CH_WARN, which only changes the foreground. */
+const char *options_chrome_sgr(ChromeKind kind);
+
 #endif
