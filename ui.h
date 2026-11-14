@@ -5,6 +5,7 @@
 void draw_status_line(void);
 void draw_menu_bar(void);
 void draw_dropdown(void);
+void dropdown_rect(int which, int *x, int *w);   /* column and width of a menu's dropdown */
 void draw_editor_area(void);
 void refresh_screen(void);
 void show_message(const char *msg);

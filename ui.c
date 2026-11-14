@@ -82,24 +82,36 @@ static const char *item_label(const MenuItem *it, char *buf, int size) {
     return buf;
 }
 
+/* Column widths fit the longest label and hint in one menu. */
+static void dropdown_widths(int which, int *label_w, int *hint_w) {
+    const Menu *m = &menus[which];
+    char buf[64];
+    *label_w = 0;
+    *hint_w = 0;
+    for (int i = 0; i < m->count; i++) {
+        int l = (int)strlen(item_label(&m->items[i], buf, sizeof(buf)));
+        int h = (int)strlen(m->items[i].hint);
+        if (l > *label_w) *label_w = l;
+        if (h > *hint_w) *hint_w = h;
+    }
+}
+
+void dropdown_rect(int which, int *x, int *w) {
+    int label_w, hint_w;
+    dropdown_widths(which, &label_w, &hint_w);
+    *w = 1 + label_w + 2 + hint_w + 1;
+    *x = menus[which].x;
+    if (*x + *w > screen_w) *x = screen_w - *w;
+}
+
 void draw_dropdown() {
     if (!editor.dropdown_open) return;
 
     const Menu *m = &menus[editor.selected_menu];
     char buf[64];
-
-    /* Column widths fit the longest label and hint in this menu */
-    int label_w = 0, hint_w = 0;
-    for (int i = 0; i < m->count; i++) {
-        int l = (int)strlen(item_label(&m->items[i], buf, sizeof(buf)));
-        int h = (int)strlen(m->items[i].hint);
-        if (l > label_w) label_w = l;
-        if (h > hint_w) hint_w = h;
-    }
-    int width = 1 + label_w + 2 + hint_w + 1;
-
-    int x = m->x;
-    if (x + width > screen_w) x = screen_w - width;
+    int label_w, hint_w, x, width;
+    dropdown_widths(editor.selected_menu, &label_w, &hint_w);
+    dropdown_rect(editor.selected_menu, &x, &width);
 
     for (int i = 0; i < m->count; i++) {
         const char *label = item_label(&m->items[i], buf, sizeof(buf));

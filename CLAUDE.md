@@ -28,6 +28,7 @@ This is a simple text editor written in C, similar to MS-DOS EDIT. It runs in th
 - `search.c/.h`: Find, Find Next, Replace, Go to Line (Ctrl+F, F3, Ctrl+R, Ctrl+G; Search menu)
 - `utf8.c/.h`: UTF-8 decode/encode, character boundaries, display width (`cp_width`, `utf8_col`, `utf8_byte_at_col`). `test_utf8.c` holds its unit tests (`make test`)
 - `recovery.c/.h`: crash recovery. `recovery_tick()` (main loop) writes `<file>.recover` every 30 s while modified; `recovery_discard()` runs after save and on discard; `recovery_check_on_startup()` offers to restore
+- `mouse.c/.h`: mouse clicks, drag selection, wheel scrolling and menu-bar clicks (`mouse_handle`). term.c reads the events (`KEY_MOUSE`, `term_get_mouse`); `read_key()` skips them, so only the main loop sees mouse input
 - `edit.c`: `main`, main loop, `run_action()` (runs a menu action or key command)
 
 New features should go in their own module (e.g. `search.c`) rather than growing `edit.c`.

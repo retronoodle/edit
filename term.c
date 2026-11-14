@@ -79,6 +79,13 @@ void fb_gotoxy(int x, int y) {
     fb_printf("\x1b[%d;%dH", y + 1, x + 1);
 }
 
+/* The last mouse event read. Set by the platform input code, copied out by term_get_mouse(). */
+static MouseEvent g_mouse;
+
+void term_get_mouse(MouseEvent *ev) {
+    *ev = g_mouse;
+}
+
 #ifdef _WIN32
 void gotoxy(int x, int y) {
     /* VT sequence: relative to the visible window, so it stays right if the window is scrolled */
@@ -110,6 +117,45 @@ static int g_cp_changed = 0;
 static int pending_high = 0;   /* UTF-16 high surrogate waiting for its pair */
 
 #define RESIZE_CH (-2)   /* pseudo-character: the console window was resized */
+#define MOUSE_CH (-3)    /* pseudo-character: a mouse event (in g_mouse) */
+
+#ifndef ENABLE_QUICK_EDIT_MODE
+    #define ENABLE_QUICK_EDIT_MODE 0x0040
+#endif
+#ifndef ENABLE_EXTENDED_FLAGS
+    #define ENABLE_EXTENDED_FLAGS 0x0080
+#endif
+
+static int g_prev_left = 0;   /* left button state at the previous mouse record */
+
+/* Turns a mouse record into g_mouse. Returns 1 if it is an event the editor uses
+   (press, drag, release or wheel), 0 for moves with no button held. */
+static int mouse_record(const MOUSE_EVENT_RECORD *m) {
+    CONSOLE_SCREEN_BUFFER_INFO info;
+    int ox = 0, oy = 0;
+    if (GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &info)) {
+        ox = info.srWindow.Left;   /* buffer -> window coordinates */
+        oy = info.srWindow.Top;
+    }
+    g_mouse.x = m->dwMousePosition.X - ox;
+    g_mouse.y = m->dwMousePosition.Y - oy;
+    g_mouse.shift = (m->dwControlKeyState & SHIFT_PRESSED) != 0;
+
+    if (m->dwEventFlags & MOUSE_WHEELED) {
+        short delta = (short)HIWORD(m->dwButtonState);
+        g_mouse.kind = delta > 0 ? MEV_WHEEL_UP : MEV_WHEEL_DOWN;
+        return 1;
+    }
+
+    int left = (m->dwButtonState & FROM_LEFT_1ST_BUTTON_PRESSED) != 0;
+    int was_left = g_prev_left;
+    g_prev_left = left;
+    if (left && !was_left) g_mouse.kind = MEV_PRESS;
+    else if (!left && was_left) g_mouse.kind = MEV_RELEASE;
+    else if (left && (m->dwEventFlags & MOUSE_MOVED)) g_mouse.kind = MEV_DRAG;
+    else return 0;
+    return 1;
+}
 
 /* Waits for a key-down event, at most timeout_ms (INFINITE to wait forever).
    Returns 0 with the UTF-16 unit or code point in *ch (0 for keys with no
@@ -142,6 +188,13 @@ static int next_key_event(int *vk, int *ch, DWORD *ctrl, DWORD timeout_ms) {
             *ctrl = 0;
             return 0;
         }
+        if (rec.EventType == MOUSE_EVENT) {
+            if (!mouse_record(&rec.Event.MouseEvent)) continue;
+            *vk = 0;
+            *ch = MOUSE_CH;
+            *ctrl = 0;
+            return 0;
+        }
         if (rec.EventType != KEY_EVENT || !rec.Event.KeyEvent.bKeyDown) continue;
 
         int u = rec.Event.KeyEvent.uChar.UnicodeChar;
@@ -165,7 +218,9 @@ static int next_key_event(int *vk, int *ch, DWORD *ctrl, DWORD timeout_ms) {
 int getch_cp(void) {
     int vk, ch;
     DWORD ctrl;
-    next_key_event(&vk, &ch, &ctrl, INFINITE);
+    do {
+        next_key_event(&vk, &ch, &ctrl, INFINITE);
+    } while (ch == MOUSE_CH);   /* prompts never see mouse events */
     return ch;
 }
 
@@ -178,8 +233,10 @@ void configure_console() {
     g_in = GetStdHandle(STD_INPUT_HANDLE);
     if (g_in != INVALID_HANDLE_VALUE && GetConsoleMode(g_in, &g_orig_in_mode)) {
         /* Raw-ish input: Ctrl+C arrives as a key, not a signal; no line editing or echo */
-        /* ENABLE_WINDOW_INPUT reports window resizes as events */
-        SetConsoleMode(g_in, (g_orig_in_mode & ~(ENABLE_PROCESSED_INPUT | ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT)) | ENABLE_WINDOW_INPUT);
+        /* ENABLE_WINDOW_INPUT reports window resizes as events. ENABLE_MOUSE_INPUT reports
+           clicks; QuickEdit must be off or the console takes the mouse for itself. */
+        SetConsoleMode(g_in, (g_orig_in_mode & ~(ENABLE_PROCESSED_INPUT | ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_QUICK_EDIT_MODE))
+                             | ENABLE_WINDOW_INPUT | ENABLE_MOUSE_INPUT | ENABLE_EXTENDED_FLAGS);
     }
 
     g_orig_cp = GetConsoleOutputCP();
@@ -223,6 +280,8 @@ static void on_winch(int sig) {
 }
 
 void disable_raw_mode() {
+    printf("\x1b[?1006l\x1b[?1002l");   /* mouse reporting off */
+    fflush(stdout);
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
 }
 
@@ -245,6 +304,10 @@ void enable_raw_mode() {
     raw.c_cc[VTIME] = 1;
 
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
+
+    /* Button-event tracking (1002) with SGR coordinates (1006): clicks, drags and wheel */
+    printf("\x1b[?1002h\x1b[?1006h");
+    fflush(stdout);
 }
 
 void gotoxy(int x, int y) {
@@ -318,6 +381,7 @@ int read_key_wait(int ms) {
     DWORD ctrl;
     if (next_key_event(&vk, &ch, &ctrl, ms < 0 ? INFINITE : (DWORD)ms)) return -1;
     if (ch == RESIZE_CH) return KEY_RESIZE;
+    if (ch == MOUSE_CH) return KEY_MOUSE;
     int shift = (ctrl & SHIFT_PRESSED) != 0;
     int alt = (ctrl & LEFT_ALT_PRESSED) != 0;
 
@@ -369,16 +433,61 @@ int read_key_wait(int ms) {
     }
 }
 int read_key() {
-    return read_key_wait(-1);
+    int k;
+    do {
+        k = read_key_wait(-1);
+    } while (k == KEY_MOUSE);   /* prompts and browsers ignore the mouse */
+    return k;
 }
 #else
+/* Reads decimal digits; *term gets the first character after them. */
+static int read_num(int *term) {
+    int n = 0, c;
+    while ((c = getch_impl()) != EOF && c >= '0' && c <= '9') n = n * 10 + (c - '0');
+    *term = c;
+    return n;
+}
+
+/* SGR mouse report, read after "ESC [ <": "b;x;yM" (press, drag, wheel) or "b;x;ym" (release). */
+static int read_sgr_mouse(void) {
+    int term;
+    int b = read_num(&term);
+    if (term != ';') return -1;
+    int x = read_num(&term);
+    if (term != ';') return -1;
+    int y = read_num(&term);
+    if (term != 'M' && term != 'm') return -1;
+
+    int base = b & ~(4 | 8 | 16);      /* strip the shift, meta and ctrl bits */
+    g_mouse.x = x - 1;
+    g_mouse.y = y - 1;
+    g_mouse.shift = (b & 4) != 0;
+    if (base == 64) g_mouse.kind = MEV_WHEEL_UP;
+    else if (base == 65) g_mouse.kind = MEV_WHEEL_DOWN;
+    else if (base == 32) g_mouse.kind = MEV_DRAG;           /* left button held while moving */
+    else if (base == 0) g_mouse.kind = (term == 'M') ? MEV_PRESS : MEV_RELEASE;
+    else return -1;                                           /* other buttons are ignored */
+    return KEY_MOUSE;
+}
+
+static int read_key_any(void);
+
 /* POSIX: VTIME already makes the read return after ~100 ms (as -1), so ms is unused */
 int read_key_wait(int ms) {
     (void)ms;
-    return read_key();
+    return read_key_any();
 }
 
+/* Like read_key_wait, but skips mouse events (prompts and browsers use this). */
 int read_key() {
+    int k;
+    do {
+        k = read_key_any();
+    } while (k == KEY_MOUSE);
+    return k;
+}
+
+static int read_key_any(void) {
     if (g_winch) {            /* resized since the last key: report it first */
         g_winch = 0;
         return KEY_RESIZE;
@@ -429,6 +538,7 @@ int read_key() {
     if (a == '[') {
         int b = getch_impl();
         if (b == EOF) return KEY_ESC;
+        if (b == '<') return read_sgr_mouse();
 
         if (b >= '0' && b <= '9') {
             // CSI with digits, possibly ending with '~'

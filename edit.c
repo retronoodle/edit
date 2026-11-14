@@ -15,6 +15,7 @@
 #include "search.h"
 #include "utf8.h"
 #include "recovery.h"
+#include "mouse.h"
 
 #define IDLE_POLL_MS 1000   /* how often the main loop wakes when no key is pressed */
 
@@ -101,6 +102,16 @@ int main(int argc, char *argv[]) {
             term_update_size();
             clear_screen();
             needs_redraw = 1;
+            continue;
+        }
+        if (key == KEY_MOUSE) {     /* click, drag or wheel: mouse.c maps it to editing or menu actions */
+            MouseEvent ev;
+            term_get_mouse(&ev);
+            needs_redraw = 1;
+            int action = mouse_handle(&ev);
+            if (action != ACT_NONE && run_action(action)) {
+                running = 0;
+            }
             continue;
         }
         needs_redraw = 1;

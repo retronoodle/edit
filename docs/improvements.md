@@ -41,7 +41,8 @@ What the editor needs to move from a DOS-style toy to something that feels curre
 
 ## Usability
 
-- **Mouse support**: click to place the cursor, drag to select, scroll wheel.
+- ~~**Mouse support**~~ (done): click places the cursor, drag selects, Shift+click extends, wheel scrolls 3 rows, and clicks open and pick menu items. Lives in `mouse.c`; terminal reporting in `term.c`.
+  - Limits: left button only, no double-click word select. Windows console QuickEdit is turned off while the editor runs (restored on exit), so console text can't be selected by mouse.
 - **Line numbers**: optional display in the left margin.
 - **Multiple file support**: tabs or buffers for editing several files.
 - **Better file operations**: recent files, file browser, save-as dialog.
