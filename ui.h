@@ -1,0 +1,17 @@
+/* Screen drawing: status line, menus, editor area, messages and help. */
+#ifndef UI_H
+#define UI_H
+
+#define FILE_ITEM_COUNT 5
+extern const char file_mnemonics[];   /* File menu shortcut letters, in item order */
+
+void draw_status_line(void);
+void draw_menu_bar(void);
+void draw_dropdown(void);
+void draw_editor_area(void);
+void refresh_screen(void);
+void show_message(const char *msg);
+int prompt_line(const char *msg, char *buf, int size);
+void show_help(void);
+
+#endif
