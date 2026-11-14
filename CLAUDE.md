@@ -27,6 +27,7 @@ This is a simple text editor written in C, similar to MS-DOS EDIT. It runs in th
 - `undo.c/.h`: undo/redo operation log (`undo_record_*` called from buffer.c, `undo_undo`/`undo_redo`, Ctrl+Z/Ctrl+Y)
 - `search.c/.h`: Find, Find Next, Replace, Go to Line (Ctrl+F, F3, Ctrl+R, Ctrl+G; Search menu)
 - `utf8.c/.h`: UTF-8 decode/encode, character boundaries, display width (`cp_width`, `utf8_col`, `utf8_byte_at_col`). `test_utf8.c` holds its unit tests (`make test`)
+- `recovery.c/.h`: crash recovery. `recovery_tick()` (main loop) writes `<file>.recover` every 30 s while modified; `recovery_discard()` runs after save and on discard; `recovery_check_on_startup()` offers to restore
 - `edit.c`: `main`, main loop, `run_action()` (runs a menu action or key command)
 
 New features should go in their own module (e.g. `search.c`) rather than growing `edit.c`.
@@ -84,3 +85,5 @@ The main loop in `main()` (edit.c) reads a key. Menu activation and menu-mode ke
 - Tab key inserts `options.tab_width` spaces (2, 4 or 8; default 4)
 - Files are saved with LF by default. Opening a file with CRLF switches saving to CRLF; the Options menu can change it. Files are written and read in binary mode, so the line ending is controlled by `options.crlf`
 - Options are not saved between runs yet
+- The main loop uses `read_key_wait(ms)` (1 s timeout) so backups run while idle. Only the main loop should use it; prompts and browsers use `read_key()`, which blocks
+- `files.c:load_stream()` reads a stream into the buffer. Recovery uses it, so keep it free of filename or modified-flag changes

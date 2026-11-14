@@ -14,6 +14,9 @@
 #include "clipboard.h"
 #include "search.h"
 #include "utf8.h"
+#include "recovery.h"
+
+#define IDLE_POLL_MS 1000   /* how often the main loop wakes when no key is pressed */
 
 static int needs_redraw = 1;
 
@@ -80,15 +83,18 @@ int main(int argc, char *argv[]) {
     clear_screen();
     set_cursor_visibility(1);
 
+    recovery_check_on_startup();
+
     while (running) {
+        recovery_tick();
         adjust_scroll();
         if (needs_redraw) {
             refresh_screen();
             needs_redraw = 0;
         }
 
-        int key = read_key();
-        if (key == -1) {
+        int key = read_key_wait(IDLE_POLL_MS);
+        if (key == -1) {        /* timed out (or EOF): loop again so backups keep running */
             continue;
         }
         if (key == KEY_RESIZE) {    /* window changed size: re-read it and redraw all */

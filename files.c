@@ -20,6 +20,7 @@
 #include "options.h"
 #include "files.h"
 #include "undo.h"
+#include "recovery.h"
 
 /* ---- File operations. Each returns 1 on success, 0 if cancelled/failed. ---- */
 
@@ -37,6 +38,7 @@ static int write_file(const char *name) {
     }
     fclose(file);
     editor.modified = 0;
+    recovery_discard();   /* the backup is stale now that the file is saved */
 
     char msg[320];   /* room for "Saved " plus a full file name */
     snprintf(msg, sizeof(msg), "Saved %s", name);
@@ -73,7 +75,10 @@ static int confirm_discard(void) {
     while (1) {
         int c = getch_cp();
         if (c == 'y' || c == 'Y') return do_save();
-        if (c == 'n' || c == 'N') return 1;
+        if (c == 'n' || c == 'N') {
+            recovery_discard();   /* changes are being thrown away */
+            return 1;
+        }
         if (c == 27) return 0;
     }
 }
@@ -250,23 +255,7 @@ static int browse_for_file(char *out, size_t size) {
     }
 }
 
-int do_open(void) {
-    char name[256];
-    if (!browse_for_file(name, sizeof(name))) return 0;
-
-    /* Binary mode keeps CR so the line ending style can be detected */
-    FILE *in = fopen(name, "rb");
-    if (!in) {
-        show_message("File not found.");
-        return 0;
-    }
-
-    // Only discard the current document once we know the new file opens
-    if (!confirm_discard()) {
-        fclose(in);
-        return 0;
-    }
-
+void load_stream(FILE *in) {
     /* Read in chunks; a line longer than the chunk spans several reads */
     free_all_lines();
     undo_clear();
@@ -292,7 +281,6 @@ int do_open(void) {
         ln->text[ln->len] = '\0';
         if (ends_line) need_line = 1;
     }
-    fclose(in);
 
     if (editor.line_count == 0) {
         insert_line_at(0, "", 0);
@@ -301,11 +289,33 @@ int do_open(void) {
     /* Keep saving in the style the file already uses */
     if (first_eol >= 0) options.crlf = first_eol;
 
-    strcpy(editor.filename, name);
     editor.cursor_x = 0;
     editor.cursor_y = 0;
     editor.scroll_x = 0;
     editor.scroll_y = 0;
+}
+
+int do_open(void) {
+    char name[256];
+    if (!browse_for_file(name, sizeof(name))) return 0;
+
+    /* Binary mode keeps CR so the line ending style can be detected */
+    FILE *in = fopen(name, "rb");
+    if (!in) {
+        show_message("File not found.");
+        return 0;
+    }
+
+    // Only discard the current document once we know the new file opens
+    if (!confirm_discard()) {
+        fclose(in);
+        return 0;
+    }
+
+    load_stream(in);
+    fclose(in);
+
+    strcpy(editor.filename, name);
     editor.modified = 0;
     return 1;
 }

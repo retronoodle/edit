@@ -111,11 +111,24 @@ static int pending_high = 0;   /* UTF-16 high surrogate waiting for its pair */
 
 #define RESIZE_CH (-2)   /* pseudo-character: the console window was resized */
 
-/* Blocks until a key-down event. Returns the UTF-16 unit or code point in *ch
-   (0 for keys with no character), the virtual-key code in *vk, and the
-   control-key state in *ctrl. */
-static void next_key_event(int *vk, int *ch, DWORD *ctrl) {
+/* Waits for a key-down event, at most timeout_ms (INFINITE to wait forever).
+   Returns 0 with the UTF-16 unit or code point in *ch (0 for keys with no
+   character), the virtual-key code in *vk, and the control-key state in *ctrl.
+   Returns 1 if the timeout passed with no key. */
+static int next_key_event(int *vk, int *ch, DWORD *ctrl, DWORD timeout_ms) {
+    DWORD start = GetTickCount();
     for (;;) {
+        DWORD wait = timeout_ms;
+        if (timeout_ms != INFINITE) {
+            DWORD elapsed = GetTickCount() - start;   /* unsigned, so wrap-safe */
+            if (elapsed >= timeout_ms) return 1;
+            wait = timeout_ms - elapsed;
+        }
+        /* Wakes on any console input, including events we discard below, so loop */
+        DWORD r = WaitForSingleObject(g_in, wait);
+        if (r == WAIT_TIMEOUT) return 1;
+        if (r != WAIT_OBJECT_0) exit(1);
+
         INPUT_RECORD rec;
         DWORD n = 0;
         if (!ReadConsoleInputW(g_in, &rec, 1, &n)) {
@@ -127,7 +140,7 @@ static void next_key_event(int *vk, int *ch, DWORD *ctrl) {
             *vk = 0;
             *ch = RESIZE_CH;
             *ctrl = 0;
-            return;
+            return 0;
         }
         if (rec.EventType != KEY_EVENT || !rec.Event.KeyEvent.bKeyDown) continue;
 
@@ -145,14 +158,14 @@ static void next_key_event(int *vk, int *ch, DWORD *ctrl) {
         *vk = rec.Event.KeyEvent.wVirtualKeyCode;
         *ch = u;
         *ctrl = rec.Event.KeyEvent.dwControlKeyState;
-        return;
+        return 0;
     }
 }
 
 int getch_cp(void) {
     int vk, ch;
     DWORD ctrl;
-    next_key_event(&vk, &ch, &ctrl);
+    next_key_event(&vk, &ch, &ctrl, INFINITE);
     return ch;
 }
 
@@ -300,10 +313,10 @@ int getch_cp() {
 */
 
 #ifdef _WIN32
-int read_key() {
+int read_key_wait(int ms) {
     int vk, ch;
     DWORD ctrl;
-    next_key_event(&vk, &ch, &ctrl);
+    if (next_key_event(&vk, &ch, &ctrl, ms < 0 ? INFINITE : (DWORD)ms)) return -1;
     if (ch == RESIZE_CH) return KEY_RESIZE;
     int shift = (ctrl & SHIFT_PRESSED) != 0;
     int alt = (ctrl & LEFT_ALT_PRESSED) != 0;
@@ -355,7 +368,16 @@ int read_key() {
         default:  return ch;   /* printable text, any Unicode code point */
     }
 }
+int read_key() {
+    return read_key_wait(-1);
+}
 #else
+/* POSIX: VTIME already makes the read return after ~100 ms (as -1), so ms is unused */
+int read_key_wait(int ms) {
+    (void)ms;
+    return read_key();
+}
+
 int read_key() {
     if (g_winch) {            /* resized since the last key: report it first */
         g_winch = 0;

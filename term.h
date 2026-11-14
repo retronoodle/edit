@@ -68,6 +68,7 @@ void set_line_wrap(int enable);
 #define KEY_RESIZE (KEY_BASE + 1400)   /* the console window changed size */
 
 int read_key(void);
+int read_key_wait(int ms);             /* waits up to ms (-1 = forever); returns -1 if no key came in time */
 void term_update_size(void);           /* sets screen_w/screen_h from the console */
 
 #endif

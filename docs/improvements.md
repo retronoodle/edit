@@ -35,8 +35,9 @@ What the editor needs to move from a DOS-style toy to something that feels curre
 ### 8. ~~Resize-aware layout~~ (done)
 - The size is read at startup and on window resize (`term_update_size` in `term.c`). Drawing, scrolling, prompts and the file browser all use it. Minimum 40x10; smaller windows are laid out as 40x10. The frame buffer grows to fit.
 
-### 9. Auto-save and crash recovery
-- Write a periodic backup file so unsaved work survives a crash.
+### 9. ~~Auto-save and crash recovery~~ (done)
+- While there are unsaved changes, the document is copied to `<file>.recover` every 30 seconds. Save or discarding changes removes it. If the editor dies, the next start asks to recover (Y restores, N deletes). Lives in `recovery.c`; the main loop wakes every second so backups run while idle.
+- Limits: backups are not made while a prompt, menu or the file browser is open. Closing the console window or logging off does not write a final backup. Untitled documents back up to `untitled.txt.recover` in the working folder.
 
 ## Usability
 
