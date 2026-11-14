@@ -7,9 +7,8 @@ What the editor needs to move from a DOS-style toy to something that feels curre
 ### 1. ~~Remove hard limits~~ (done)
 - Line array and per-line buffers now grow on demand. `MAX_LINES` and `MAX_LINE_LENGTH` are removed.
 
-### 2. Undo/redo
-- Nothing can be undone today.
-- Start with an operation log (insert/delete char, insert/delete line) that records cursor position.
+### 2. ~~Undo/redo~~ (done)
+- Ctrl+Z undoes, Ctrl+Y redoes. Typing and deleting runs merge into one step; cursor moves end a step. Lives in `undo.c`.
 
 ### 3. Clipboard
 - Selection via Shift+arrows.
@@ -58,4 +57,5 @@ What the editor needs to move from a DOS-style toy to something that feels curre
 ## Current Constraints
 
 - Files are always saved with Unix line endings (`\n`).
-- No undo, clipboard or search exists yet.
+- No clipboard or search exists yet.
+- Undo history has no depth limit and the modified flag is not save-point aware (undo after a save still shows `*`).

@@ -219,6 +219,8 @@ int read_key() {
             case 15: return KEY_CTRL_O;
             case 17: return KEY_CTRL_Q;
             case 19: return KEY_CTRL_S;
+            case 25: return KEY_CTRL_Y;
+            case 26: return KEY_CTRL_Z;
             default: return ch;
         }
     }
@@ -235,6 +237,8 @@ int read_key() {
     if (ch == 15) return KEY_CTRL_O;
     if (ch == 17) return KEY_CTRL_Q;
     if (ch == 19) return KEY_CTRL_S;
+    if (ch == 25) return KEY_CTRL_Y;
+    if (ch == 26) return KEY_CTRL_Z;
 
     if (ch != 27) { // Not an escape sequence
         return ch;

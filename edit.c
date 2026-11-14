@@ -8,6 +8,7 @@
 #include "term.h"
 #include "ui.h"
 #include "files.h"
+#include "undo.h"
 
 static int needs_redraw = 1;
 
@@ -155,6 +156,8 @@ int main(int argc, char *argv[]) {
             case KEY_CTRL_O: do_open(); break;
             case KEY_CTRL_S: do_save(); break;
             case KEY_CTRL_Q: if (do_exit()) running = 0; break;
+            case KEY_CTRL_Z: undo_undo(); break;
+            case KEY_CTRL_Y: undo_redo(); break;
 
             case KEY_INSERT: editor.insert_mode = !editor.insert_mode; break;
             case KEY_DELETE: delete_char(); break;
@@ -180,6 +183,7 @@ int main(int argc, char *argv[]) {
     set_line_wrap(1);
 #endif
     set_cursor_visibility(1);
+    undo_clear();
     free_all_lines();
     return 0;
 }

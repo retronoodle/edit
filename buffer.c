@@ -5,6 +5,7 @@
 
 #include "editor.h"
 #include "buffer.h"
+#include "undo.h"
 
 Editor editor;
 
@@ -76,6 +77,7 @@ void free_all_lines(void) {
 /* Clears the document to one empty line and puts the cursor at the top. */
 void reset_document(void) {
     free_all_lines();
+    undo_clear();
     insert_line_at(0, "", 0);
     editor.cursor_x = 0;
     editor.cursor_y = 0;
@@ -112,6 +114,8 @@ void adjust_scroll() {
 }
 
 void move_cursor(int dx, int dy) {
+    undo_break_group();   /* moving the cursor ends the current typing step */
+
     if (dy != 0) {
         editor.cursor_y += dy;
         if (editor.cursor_y < 0) editor.cursor_y = 0;
@@ -136,66 +140,101 @@ void move_cursor(int dx, int dy) {
     adjust_scroll();
 }
 
+/* ---- Raw mutations: change the text only, never record undo ---- */
+
+void raw_insert_text(int y, int x, const char *s, int n) {
+    Line *ln = &editor.lines[y];
+    line_reserve(ln, ln->len + n + 1);
+    memmove(&ln->text[x + n], &ln->text[x], ln->len - x + 1);
+    memcpy(&ln->text[x], s, n);
+    ln->len += n;
+}
+
+void raw_delete_text(int y, int x, int n) {
+    Line *ln = &editor.lines[y];
+    memmove(&ln->text[x], &ln->text[x + n], ln->len - x - n + 1);
+    ln->len -= n;
+}
+
+/* Splits line y at column x; the tail becomes line y+1. */
+void raw_split(int y, int x) {
+    insert_line_at(y + 1, editor.lines[y].text + x, editor.lines[y].len - x);
+    Line *cur = &editor.lines[y];   /* re-fetch: array may have moved */
+    cur->text[x] = '\0';
+    cur->len = x;
+}
+
+/* Joins line y+1 onto the end of line y. */
+void raw_join(int y) {
+    Line *prev = &editor.lines[y];
+    Line *cur = &editor.lines[y + 1];
+    int prev_len = prev->len;
+
+    line_reserve(prev, prev_len + cur->len + 1);
+    memcpy(&prev->text[prev_len], cur->text, cur->len + 1);
+    prev->len = prev_len + cur->len;
+
+    delete_line_at(y + 1);
+}
+
+/* ---- Editing operations: change the text and record it for undo ---- */
+
 void insert_char(char ch) {
-    Line *ln = &editor.lines[editor.cursor_y];
-    line_reserve(ln, ln->len + 2);
+    int y = editor.cursor_y, x = editor.cursor_x;
+    Line *ln = &editor.lines[y];
 
     /* Insert mode shifts the tail right; overwrite mode replaces, except at end of line */
-    if (editor.insert_mode || editor.cursor_x >= ln->len) {
-        memmove(&ln->text[editor.cursor_x + 1], &ln->text[editor.cursor_x],
-                ln->len - editor.cursor_x + 1);
-        ln->len++;
+    if (editor.insert_mode || x >= ln->len) {
+        raw_insert_text(y, x, &ch, 1);
+        undo_record_insert(y, x, &ch, 1, x, y);
+    } else {
+        char old = ln->text[x];
+        ln->text[x] = ch;
+        undo_record_replace(y, x, old, ch, x, y);
     }
-
-    ln->text[editor.cursor_x] = ch;
     editor.cursor_x++;
     editor.modified = 1;
 }
 
 void delete_char() {
-    Line *ln = &editor.lines[editor.cursor_y];
+    int y = editor.cursor_y, x = editor.cursor_x;
+    Line *ln = &editor.lines[y];
 
-    if (editor.cursor_x < ln->len) {
-        memmove(&ln->text[editor.cursor_x], &ln->text[editor.cursor_x + 1],
-                ln->len - editor.cursor_x);
-        ln->len--;
+    if (x < ln->len) {
+        char c = ln->text[x];
+        raw_delete_text(y, x, 1);
+        undo_record_delete(y, x, &c, 1, x, y);
         editor.modified = 1;
     }
 }
 
 void backspace() {
-    if (editor.cursor_x > 0) {
-        editor.cursor_x--;
-        delete_char();
-    } else if (editor.cursor_y > 0) {
+    int y = editor.cursor_y, x = editor.cursor_x;
+
+    if (x > 0) {
+        int nx = x - 1;
+        char c = editor.lines[y].text[nx];
+        raw_delete_text(y, nx, 1);
+        undo_record_delete(y, nx, &c, 1, x, y);
+        editor.cursor_x = nx;
+        editor.modified = 1;
+    } else if (y > 0) {
         /* Join this line onto the end of the previous one */
-        Line *prev = &editor.lines[editor.cursor_y - 1];
-        Line *cur = &editor.lines[editor.cursor_y];
-        int prev_len = prev->len;
+        int prev_len = editor.lines[y - 1].len;
+        raw_join(y - 1);
+        undo_record_join(y - 1, prev_len, x, y);
 
-        line_reserve(prev, prev_len + cur->len + 1);
-        memcpy(&prev->text[prev_len], cur->text, cur->len + 1);
-        prev->len = prev_len + cur->len;
-
-        delete_line_at(editor.cursor_y);
-
-        editor.cursor_y--;
+        editor.cursor_y = y - 1;
         editor.cursor_x = prev_len;
         editor.modified = 1;
     }
 }
 
 void insert_newline() {
-    Line *cur = &editor.lines[editor.cursor_y];
-    int tail_len = cur->len - editor.cursor_x;
+    int y = editor.cursor_y, x = editor.cursor_x;
 
-    /* Copies the tail into a new line. The tail pointer targets the text
-       buffer, which stays valid even if the lines array is reallocated. */
-    insert_line_at(editor.cursor_y + 1, cur->text + editor.cursor_x, tail_len);
-
-    cur = &editor.lines[editor.cursor_y];   /* re-fetch: array may have moved */
-    cur->text[editor.cursor_x] = '\0';
-    cur->len = editor.cursor_x;
+    raw_split(y, x);
+    undo_record_split(y, x, x, y);
 
     editor.cursor_y++;
     editor.cursor_x = 0;

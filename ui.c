@@ -206,6 +206,7 @@ void show_help(void) {
     printf("  Ctrl+N          - New file\n");
     printf("  Ctrl+O          - Open file\n");
     printf("  Ctrl+S          - Save file\n");
+    printf("  Ctrl+Z / Ctrl+Y - Undo / Redo\n");
     printf("  Ctrl+Q          - Exit\n\n");
     printf("Editing:\n");
     printf("  Arrow Keys      - Move cursor\n");

@@ -18,6 +18,7 @@
 #include "term.h"
 #include "ui.h"
 #include "files.h"
+#include "undo.h"
 
 /* ---- File operations. Each returns 1 on success, 0 if cancelled/failed. ---- */
 
@@ -257,6 +258,7 @@ int do_open(void) {
 
     /* Read in chunks; a line longer than the chunk spans several reads */
     free_all_lines();
+    undo_clear();
     char chunk[4096];
     int need_line = 1;
     while (fgets(chunk, sizeof(chunk), in)) {
