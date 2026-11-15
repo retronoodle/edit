@@ -85,6 +85,25 @@ static void check_round_trip(const char *in, int len) {
     free(back);
 }
 
+static void check_fence(const char *in, const char *want) {
+    char *got = ai_strip_fences(in);
+    if (!got || strcmp(got, want) != 0) {
+        printf("FAIL strip_fences(\"%s\") = \"%s\", want \"%s\"\n", in, got ? got : "(null)", want);
+        failures++;
+    }
+    free(got);
+}
+
+static void check_input(const char *ins, const char *sel, const char *before, const char *after,
+                        const char *want) {
+    char *got = ai_build_ask_input(ins, sel, before, after);
+    if (!got || strcmp(got, want) != 0) {
+        printf("FAIL ask_input: got \"%s\", want \"%s\"\n", got ? got : "(null)", want);
+        failures++;
+    }
+    free(got);
+}
+
 int main(void) {
     /* Escape */
     check_esc("", "");
@@ -224,6 +243,28 @@ int main(void) {
     if (!ai_curl_error(7) || strstr(ai_curl_error(7), "connect") == NULL) { printf("FAIL curl 7\n"); failures++; }
     if (!ai_curl_error(28) || strstr(ai_curl_error(28), "timed out") == NULL) { printf("FAIL curl 28\n"); failures++; }
     if (ai_curl_error(99) != NULL) { printf("FAIL curl 99\n"); failures++; }
+
+    /* Ask AI: fence stripping */
+    check_fence("```c\nint x;\n```", "int x;");
+    check_fence("```\nabc\n```\n", "abc");
+    check_fence("\n  ```\nline1\nline2\n```  \n", "line1\nline2");
+    check_fence("```\r\nwin\r\n```", "win");
+    check_fence("```\n```", "");
+    check_fence("plain text", "plain text");
+    check_fence("a ```b``` c", "a ```b``` c");
+    check_fence("```", "```");
+    check_fence("", "");
+    if (ai_strip_fences(NULL) != NULL) { printf("FAIL strip NULL\n"); failures++; }
+
+    /* Ask AI: user message */
+    check_input("make it loud", "hi", "", "",
+                "Instruction: make it loud\n\nSelected text (to be replaced):\nhi\n");
+    check_input("x", "", "A", "B",
+                "Instruction: x\n\nText before:\nA\n\n"
+                "No text is selected; the reply is inserted at the cursor.\n\n"
+                "Text after:\nB\n");
+    check_input("y", NULL, NULL, NULL,
+                "Instruction: y\n\nNo text is selected; the reply is inserted at the cursor.\n");
 
     if (failures == 0) printf("test_ai: all passed\n");
     return failures ? 1 : 0;

@@ -489,3 +489,55 @@ const char *ai_curl_error(int curl_exit) {
     default: return NULL;
     }
 }
+
+/* Returns a copy of s with one wrapping ```lang ... ``` fence removed, when the
+   whole reply is fenced. Any other reply is returned unchanged. Malloc'd, or NULL. */
+char *ai_strip_fences(const char *s) {
+    if (!s) return NULL;
+    const char *a = s, *t = s + strlen(s);
+    while (a < t && isspace((unsigned char)*a)) a++;
+    while (t > a && isspace((unsigned char)t[-1])) t--;
+
+    const char *body = s, *end = s + strlen(s);
+    if (t - a >= 7 && strncmp(a, "```", 3) == 0 && strncmp(t - 3, "```", 3) == 0) {
+        const char *nl = memchr(a, '\n', t - a);
+        if (nl && nl < t - 3) {
+            body = nl + 1;
+            end = t - 3;
+            if (end > body && end[-1] == '\n') {
+                end--;
+                if (end > body && end[-1] == '\r') end--;
+            }
+        }
+    }
+
+    size_t n = end - body;
+    char *out = malloc(n + 1);
+    if (!out) return NULL;
+    memcpy(out, body, n);
+    out[n] = '\0';
+    return out;
+}
+
+/* Appends "label\n" + text + "\n" when text is non-empty. */
+static int put_section(Buf *b, const char *label, const char *text) {
+    if (!text || !*text) return 1;
+    return put_lit(b, "\n") && put_lit(b, label) && put_lit(b, "\n") &&
+           buf_put(b, text, (int)strlen(text)) && buf_putc(b, '\n');
+}
+
+/* The user message for Ask AI. Empty sections are left out. A NULL argument counts as "". */
+char *ai_build_ask_input(const char *instruction, const char *selection,
+                         const char *before, const char *after) {
+    Buf b;
+    if (!buf_init(&b)) return NULL;
+    int ok = put_lit(&b, "Instruction: ") && put_lit(&b, instruction ? instruction : "") &&
+             put_lit(&b, "\n") &&
+             put_section(&b, "Text before:", before);
+    if (ok) {
+        if (selection && *selection) ok = put_section(&b, "Selected text (to be replaced):", selection);
+        else ok = put_lit(&b, "\nNo text is selected; the reply is inserted at the cursor.\n");
+    }
+    ok = ok && put_section(&b, "Text after:", after);
+    return finish_body(&b, ok);
+}

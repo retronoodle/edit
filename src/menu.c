@@ -27,6 +27,7 @@ static const MenuItem edit_items[] = {
     {"Copy",       "Ctrl+C", 'C', ACT_COPY,       0, 0},
     {"Paste",      "Ctrl+V", 'P', ACT_PASTE,      0, 0},
     {"Select All", "Ctrl+A", 'A', ACT_SELECT_ALL, 0, 0},
+    {"Ask AI...",  "Alt+I",  'I', ACT_AI_ASK,     0, 0},
 };
 
 static const MenuItem search_items[] = {

@@ -12,6 +12,10 @@ int sel_range(int *y1, int *x1, int *y2, int *x2);  /* 1 if a non-empty selectio
 void sel_extend_block(void);                        /* start or extend a block; plain selection while word wrap is on */
 void sel_block_cols(int *c1, int *c2);              /* left and right display columns of the block (c2 exclusive) */
 
+/* The selected text as a malloc'd string ('\n' between lines), length in *len. NULL when
+   nothing is selected or on allocation failure. */
+char *sel_get_text(int *len);
+
 /* Deletes the selected text and clears the selection. No undo group of its own. */
 void sel_delete_selection(void);
 

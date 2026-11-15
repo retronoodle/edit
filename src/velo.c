@@ -10,6 +10,7 @@
 #include "menu.h"
 #include "options.h"
 #include "aisetup.h"
+#include "aiedit.h"
 #include "files.h"
 #include "undo.h"
 #include "clipboard.h"
@@ -74,6 +75,7 @@ static int run_action(int action) {
             editor.syn_override = (editor.syn_override + 1) % 9;
             break;
         case ACT_AI_SETUP:   ai_setup(); break;
+        case ACT_AI_ASK:     ai_ask_selection(); break;
     }
     return 0;
 }
@@ -164,6 +166,7 @@ int main(int argc, char *argv[]) {
         // Normal editing mode
         switch (key) {
             case KEY_ALT_G: git_modal(); break;
+            case KEY_ALT_I: run_action(ACT_AI_ASK); break;
             case KEY_SHIFT_UP: sel_extend(); move_cursor(0, -1); break;
             case KEY_SHIFT_DOWN: sel_extend(); move_cursor(0, 1); break;
             case KEY_SHIFT_LEFT: sel_extend(); move_cursor(-1, 0); break;

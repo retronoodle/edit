@@ -257,13 +257,9 @@ static char *sys_clip_read(int *len) {
 }
 #endif
 
-/* Copies the selected text into the internal clipboard and the system clipboard. */
-void clip_copy(void) {
+char *sel_get_text(int *len) {
     SelSpan s;
-    if (!sel_span_capture(&s)) {
-        show_message("No selection.");
-        return;
-    }
+    if (!sel_span_capture(&s)) return NULL;
 
     int total = 0;
     for (int y = s.y1; y <= s.y2; y++) {
@@ -274,7 +270,7 @@ void clip_copy(void) {
     }
 
     char *buf = malloc(total + 1);
-    if (!buf) return;
+    if (!buf) return NULL;
 
     int p = 0;
     for (int y = s.y1; y <= s.y2; y++) {
@@ -285,6 +281,21 @@ void clip_copy(void) {
         if (y < s.y2) buf[p++] = '\n';
     }
     buf[p] = '\0';
+    *len = total;
+    return buf;
+}
+
+/* Copies the selected text into the internal clipboard and the system clipboard. */
+void clip_copy(void) {
+    int y1, x1, y2, x2;
+    if (!sel_range(&y1, &x1, &y2, &x2)) {
+        show_message("No selection.");
+        return;
+    }
+
+    int total = 0;
+    char *buf = sel_get_text(&total);
+    if (!buf) return;
 
     free(clip_text);
     clip_text = buf;

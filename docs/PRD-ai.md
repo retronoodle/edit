@@ -111,10 +111,10 @@ Each feature is only a system prompt plus glue code.
 
 ### Phase 6: Ask AI on a selection
 
-- [ ] 6.1 Add `ACT_AI_ASK` (Alt+I) and an Edit menu item
-- [ ] 6.2 Prompt for the instruction, build the input from the selection and surrounding text
-- [ ] 6.3 Replace the selection (or insert at cursor) through the `buffer.c` edit functions as one undo step
-- [ ] 6.4 Strip code fences from the reply
+- [x] 6.1 Add `ACT_AI_ASK` (Alt+I) and an Edit menu item
+- [x] 6.2 Prompt for the instruction, build the input from the selection and surrounding text
+- [x] 6.3 Replace the selection (or insert at cursor) through the `buffer.c` edit functions as one undo step
+- [x] 6.4 Strip code fences from the reply
 
 ### Phase 7: Explain selection
 

@@ -56,4 +56,16 @@ char *ai_parse_reply(const char *provider, const char *body, char *err, int errs
 /* Short message for a curl exit code, or NULL when there is no special message. */
 const char *ai_curl_error(int curl_exit);
 
+/* Ask AI helpers (pure). */
+
+/* Removes one wrapping ```lang ... ``` fence when the whole reply is fenced; any other
+   reply is copied unchanged. Returns malloc'd text (free it), or NULL on allocation failure. */
+char *ai_strip_fences(const char *s);
+
+/* User message for Ask AI: the instruction, then the text before, the selection (or a
+   note that the reply goes at the cursor), and the text after. Empty sections are left
+   out. Returns malloc'd text (free it), or NULL on allocation failure. */
+char *ai_build_ask_input(const char *instruction, const char *selection,
+                         const char *before, const char *after);
+
 #endif
