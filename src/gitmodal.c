@@ -20,11 +20,17 @@
 #include "ui.h"
 #include "tabs.h"
 #include "options.h"
+#include "aiask.h"
 #include "gitmodal.h"
 
 #define MSG_MAX 256
 #define CMD_MAX 1536   /* room for a full temp path inside the git commit command */
 #define COMMIT_MAX 256
+#define DIFF_MAX 20000   /* diff bytes sent to the AI for a commit draft */
+
+static const char COMMIT_SYSTEM[] =
+    "Write a git commit message for this diff. One line, imperative mood, max 72 characters. "
+    "No quotes, no prefix, no trailing period. Output only the message.";
 #define NAME_MAX_LEN 128   /* longest branch name we accept */
 
 static char *text_buf = NULL;   /* git status output; header and files point into it */
@@ -428,8 +434,8 @@ static void draw(void) {
 
     const char *foot;
     if (!in_repo) foot = " Esc Close";
-    else if (merging) foot = " Space Stage  S/U All  C Commit  A Abort merge  R Refresh  Esc Close";
-    else foot = " Space Stage  S/U All  C Commit  P Push  B Branch  M Merge  R Refresh  Esc Close";
+    else if (merging) foot = " Space Stage  S/U All  C Commit  D Draft  A Abort merge  R Refresh  Esc Close";
+    else foot = " Space Stage  S/U All  C Commit  D Draft  P Push  B Branch  M Merge  R Refresh  Esc Close";
     put_row(screen_h - 1, options_chrome_sgr(CH_STATUS), foot);
     fb_flush();
 }
@@ -628,8 +634,9 @@ static void do_unstage_all(void) {
 }
 
 /* Commits what is staged. With nothing staged it asks whether to stage everything first.
+   draft (may be NULL) is an AI message that the commit prompt starts with, for editing.
    The message is read from a file, which avoids shell quoting problems. */
-static void do_commit(void) {
+static void do_commit_with(const char *draft) {
     int stage_all = 0;
     if (count_staged() == 0) {
         if (nfiles == 0 && !merging) {
@@ -649,7 +656,10 @@ static void do_commit(void) {
     }
 
     char message[COMMIT_MAX] = "";
-    if (!prompt_line("Commit message: ", message, sizeof message)) {
+    if (draft) snprintf(message, sizeof message, "%s", draft);
+    int ok = draft ? prompt_line_prefill("Commit message: ", message, sizeof message)
+                   : prompt_line("Commit message: ", message, sizeof message);
+    if (!ok) {
         set_msg("Commit cancelled.");
         return;
     }
@@ -681,6 +691,105 @@ static void do_commit(void) {
     run_git("git commit", cmd);
     remove(path);
     load_status();
+}
+
+static void do_commit(void) { do_commit_with(NULL); }
+
+/* Gets the diff for a commit draft: the staged changes when something is staged,
+   otherwise the working tree against HEAD. Capped at DIFF_MAX bytes on a line boundary.
+   Returns 0 with *out set (malloc'd, caller frees), or -1 with msg set. */
+static int get_diff(char **out) {
+    char *text = NULL;
+    int rc;
+    if (count_staged() > 0) {
+        rc = run_cmd("git diff --cached", &text);
+    } else {
+        rc = run_cmd("git diff HEAD", &text);
+        if (rc != 0) {   /* no commits yet: HEAD does not exist */
+            free(text);
+            text = NULL;
+            rc = run_cmd("git diff", &text);
+        }
+    }
+    if (rc != 0 || !text) {
+        free(text);
+        set_msg("Could not read the diff.");
+        return -1;
+    }
+
+    const char *p = text;
+    while (*p && isspace((unsigned char)*p)) p++;
+    if (!*p) {
+        free(text);
+        set_msg("Nothing to draft.");
+        return -1;
+    }
+
+    size_t n = strlen(text);
+    if (n > DIFF_MAX) {
+        size_t cut = DIFF_MAX;
+        while (cut > 0 && text[cut - 1] != '\n') cut--;
+        if (cut == 0) cut = DIFF_MAX;
+        char *capped = malloc(cut + 32);
+        if (!capped) {
+            free(text);
+            set_msg("Out of memory.");
+            return -1;
+        }
+        memcpy(capped, text, cut);
+        strcpy(capped + cut, "[diff truncated]\n");
+        free(text);
+        text = capped;
+    }
+    *out = text;
+    return 0;
+}
+
+/* Drafts a commit message with the AI (D), then opens the commit prompt with it for editing. */
+static void do_draft_commit(void) {
+    if (nfiles == 0 && !merging) {
+        set_msg("Nothing to draft.");
+        return;
+    }
+    char *diff = NULL;
+    if (get_diff(&diff) != 0) return;
+
+    set_msg("Thinking...");
+    draw();
+
+    char *reply = NULL;
+    char err[256];
+    int rc = ai_ask(COMMIT_SYSTEM, diff, &reply, err, sizeof err);
+    free(diff);
+    if (rc != 0) {
+        set_msg(err);
+        return;
+    }
+
+    /* First line only, without surrounding whitespace, quotes or backticks. */
+    char draft[COMMIT_MAX];
+    const char *s = reply;
+    while (*s && isspace((unsigned char)*s)) s++;
+    size_t i = 0;
+    while (s[i] && s[i] != '\n' && i < sizeof draft - 1) {
+        draft[i] = s[i];
+        i++;
+    }
+    draft[i] = '\0';
+    free(reply);
+    while (i > 0 && isspace((unsigned char)draft[i - 1])) draft[--i] = '\0';
+    if (i >= 2 && strchr("\"'`", draft[0]) && draft[i - 1] == draft[0]) {
+        memmove(draft, draft + 1, i - 2);
+        i -= 2;
+        draft[i] = '\0';
+    }
+    if (draft[0] == '\0') {
+        set_msg("The AI returned an empty message.");
+        return;
+    }
+
+    msg[0] = '\0';
+    do_commit_with(draft);
 }
 
 /* Pushes. Prompts are switched off so a missing login fails instead of hanging.
@@ -821,6 +930,8 @@ void git_modal(void) {
             case 'U':        if (in_repo) do_unstage_all(); break;
             case 'c':
             case 'C':        if (in_repo) do_commit(); break;
+            case 'd':
+            case 'D':        if (in_repo) do_draft_commit(); break;
             case 'p':
             case 'P':        if (in_repo) do_push(); break;
             case 'b':

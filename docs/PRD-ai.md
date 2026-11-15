@@ -123,8 +123,8 @@ Each feature is only a system prompt plus glue code.
 
 ### Phase 8: Commit message draft
 
-- [ ] 8.1 Get the diff from the git panel's repo (capped in size) in `gitmodal.c`
-- [ ] 8.2 Add a key in the Alt+G panel that drafts a message and fills the commit prompt for editing
+- [x] 8.1 Get the diff from the git panel's repo (capped in size) in `gitmodal.c`
+- [x] 8.2 Add a key in the Alt+G panel that drafts a message and fills the commit prompt for editing
 
 ### Phase 9: Docs
 

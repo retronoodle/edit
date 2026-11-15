@@ -489,14 +489,20 @@ void show_message(const char *msg) {
 /* Reads a line of text on the prompt row. Enter accepts, Esc cancels.
    Reads char-by-char so it works in raw mode (POSIX) and cooked mode alike.
    Returns 1 if a non-empty line was entered. */
-static int prompt_impl(const char *msg, char *buf, int size, int mask) {
+static int prompt_impl(const char *msg, char *buf, int size, int mask, int prefill) {
     int len = 0;
-    buf[0] = '\0';
+    if (prefill) {
+        buf[size - 1] = '\0';
+        len = (int)strlen(buf);
+    } else {
+        buf[0] = '\0';
+    }
 
     gotoxy(0, screen_h - 2);
     printf("%-*s", screen_w - 1, "");
     gotoxy(0, screen_h - 2);
     printf("%s", msg);
+    if (len > 0) printf("%s", buf);   /* prefilled text is shown for editing */
     fflush(stdout);
     set_cursor_visibility(1);
 
@@ -537,7 +543,7 @@ static int prompt_impl(const char *msg, char *buf, int size, int mask) {
 }
 
 int prompt_line_opt(const char *msg, char *buf, int size) {
-    return prompt_impl(msg, buf, size, 0);
+    return prompt_impl(msg, buf, size, 0, 0);
 }
 
 int prompt_line(const char *msg, char *buf, int size) {
@@ -545,7 +551,11 @@ int prompt_line(const char *msg, char *buf, int size) {
 }
 
 int prompt_line_secret(const char *msg, char *buf, int size) {
-    return prompt_impl(msg, buf, size, 1);
+    return prompt_impl(msg, buf, size, 1, 0);
+}
+
+int prompt_line_prefill(const char *msg, char *buf, int size) {
+    return prompt_impl(msg, buf, size, 0, 1) && buf[0] != '\0';
 }
 
 void show_help(void) {
