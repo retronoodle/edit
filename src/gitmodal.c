@@ -31,6 +31,7 @@ static char *text_buf = NULL;   /* git status output; header and files point int
 static char **files = NULL;     /* changed-file lines (porcelain) */
 static int nfiles = 0;
 static const char *header = "";  /* "master...origin/master [ahead 1]" */
+static int unpushed = 0;         /* commits not on any remote (from header, or rev-list without an upstream) */
 static int in_repo = 0;
 static int merging = 0;          /* a merge is stopped (MERGE_HEAD exists) */
 static int top = 0;             /* first visible file row */
@@ -162,6 +163,7 @@ static void clear_status(void) {
     files = NULL;
     nfiles = 0;
     header = "";
+    unpushed = 0;
     in_repo = 0;
     merging = 0;
 }
@@ -211,6 +213,17 @@ static void load_status(void) {
 
         if (!eol) break;
         p = eol + 1;
+    }
+
+    /* Commits not pushed yet. With an upstream, git's header says "[ahead N]";
+       without one, count commits no remote has. */
+    if (strstr(header, "...")) {
+        const char *ah = strstr(header, "ahead ");
+        unpushed = ah ? atoi(ah + 6) : 0;
+    } else {
+        char *uo = NULL;
+        if (run_cmd("git rev-list --count HEAD --not --remotes", &uo) == 0 && uo) unpushed = atoi(uo);
+        free(uo);
     }
 }
 
@@ -369,7 +382,9 @@ static void draw(void) {
 
     fb_reset();
 
-    snprintf(title, sizeof title, " Git: %s", in_repo ? header : "not a git repository");
+    char count[64] = "";
+    if (unpushed > 0) snprintf(count, sizeof count, "  |  %d unpushed commit%s", unpushed, unpushed == 1 ? "" : "s");
+    snprintf(title, sizeof title, " Git: %s%s", in_repo ? header : "not a git repository", count);
     put_row(0, options_chrome_sgr(CH_BAR), title);
 
     for (int i = 0; i < rows; i++) {
