@@ -84,10 +84,10 @@ Each feature is only a system prompt plus glue code.
 
 ### Phase 2: Options > AI setup
 
-- [ ] 2.1 Add `ACT_AI_SETUP` to `menu.h` and an "AI..." item to the Options menu
-- [ ] 2.2 Add `ai_setup()` that prompts for provider, model, base URL and key, and saves
-- [ ] 2.3 Show the key masked (or as "set" / "from env") and never echo it in messages
-- [ ] 2.4 Wire the action into `run_action()` in `velo.c`
+- [x] 2.1 Add `ACT_AI_SETUP` to `menu.h` and an "AI..." item to the Options menu
+- [x] 2.2 Add `ai_setup()` that prompts for provider, model, base URL and key, and saves
+- [x] 2.3 Show the key masked (or as "set" / "from env") and never echo it in messages
+- [x] 2.4 Wire the action into `run_action()` in `velo.c`
 
 ### Phase 3: JSON helpers
 

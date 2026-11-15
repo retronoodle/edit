@@ -489,7 +489,7 @@ void show_message(const char *msg) {
 /* Reads a line of text on the prompt row. Enter accepts, Esc cancels.
    Reads char-by-char so it works in raw mode (POSIX) and cooked mode alike.
    Returns 1 if a non-empty line was entered. */
-int prompt_line_opt(const char *msg, char *buf, int size) {
+static int prompt_impl(const char *msg, char *buf, int size, int mask) {
     int len = 0;
     buf[0] = '\0';
 
@@ -511,7 +511,7 @@ int prompt_line_opt(const char *msg, char *buf, int size) {
         if (c == 8 || c == 127) {            // Backspace: remove one whole character
             if (len > 0) {
                 int p = utf8_prev(buf, len, len);
-                int w = utf8_width(buf + p, len - p);
+                int w = mask ? 1 : utf8_width(buf + p, len - p);
                 len = p;
                 buf[len] = '\0';
                 for (int i = 0; i < w; i++) printf("\b \b");
@@ -526,7 +526,8 @@ int prompt_line_opt(const char *msg, char *buf, int size) {
                 memcpy(buf + len, enc, n);
                 len += n;
                 buf[len] = '\0';
-                fwrite(enc, 1, n, stdout);
+                if (mask) putchar('*');   /* secret: show one * per character */
+                else fwrite(enc, 1, n, stdout);
                 fflush(stdout);
             }
         }
@@ -535,8 +536,16 @@ int prompt_line_opt(const char *msg, char *buf, int size) {
     return 1;
 }
 
+int prompt_line_opt(const char *msg, char *buf, int size) {
+    return prompt_impl(msg, buf, size, 0);
+}
+
 int prompt_line(const char *msg, char *buf, int size) {
     return prompt_line_opt(msg, buf, size) && buf[0] != '\0';
+}
+
+int prompt_line_secret(const char *msg, char *buf, int size) {
+    return prompt_impl(msg, buf, size, 1);
 }
 
 void show_help(void) {

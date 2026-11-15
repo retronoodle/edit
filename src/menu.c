@@ -45,6 +45,7 @@ static const MenuItem options_items[] = {
     {NULL, "", 'Y', ACT_SYNTAX,       1, 1},
     {NULL, "", 'W', ACT_WRAP,         1, 1},
     {NULL, "", 'G', ACT_LANGUAGE,     1, 1},
+    {"AI setup...", "", 'A', ACT_AI_SETUP, 0, 0},
 };
 
 const Menu menus[MENU_COUNT] = {

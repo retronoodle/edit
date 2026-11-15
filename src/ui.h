@@ -13,6 +13,7 @@ void refresh_screen(void);
 void show_message(const char *msg);
 int prompt_line(const char *msg, char *buf, int size);      /* 1 only if non-empty */
 int prompt_line_opt(const char *msg, char *buf, int size);  /* 1 on Enter, even if empty */
+int prompt_line_secret(const char *msg, char *buf, int size); /* as prompt_line_opt, echoes * */
 void show_help(void);
 
 #endif
