@@ -98,9 +98,9 @@ Each feature is only a system prompt plus glue code.
 
 ### Phase 4: Request building
 
-- [ ] 4.1 Build the Anthropic request body from system, input, model and max tokens
-- [ ] 4.2 Build the OpenAI-compatible request body and URL from the base URL
-- [ ] 4.3 Unit tests for both request builders
+- [x] 4.1 Build the Anthropic request body from system, input, model and max tokens
+- [x] 4.2 Build the OpenAI-compatible request body and URL from the base URL
+- [x] 4.3 Unit tests for both request builders
 
 ### Phase 5: `ai_ask` transport
 

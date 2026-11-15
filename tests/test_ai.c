@@ -56,6 +56,24 @@ static void check_error(const char *json, const char *want) {
     free(got);
 }
 
+static void check_body(char *got, const char *want) {
+    if (!got || strcmp(got, want) != 0) {
+        printf("FAIL body = \"%s\", want \"%s\"\n", got ? got : "(null)", want);
+        failures++;
+    }
+    free(got);
+}
+
+static void check_url(const char *base, const char *want) {
+    char *got = ai_openai_url(base);
+    if (!got || strcmp(got, want) != 0) {
+        printf("FAIL url(\"%s\") = \"%s\", want \"%s\"\n", base ? base : "(null)",
+               got ? got : "(null)", want);
+        failures++;
+    }
+    free(got);
+}
+
 static void check_round_trip(const char *in, int len) {
     char *esc = ai_json_escape(in, len);
     char *back = esc ? ai_json_unescape(esc, (int)strlen(esc)) : NULL;
@@ -116,6 +134,46 @@ int main(void) {
     check_error("{\"error\":\"oops\"}", "oops");
     check_error("{\"message\":\"top\"}", "top");
     check_error("{\"ok\":true}", NULL);
+
+    /* Request bodies: exact shape */
+    check_body(ai_build_anthropic_body("claude-x", "", "hi", 100),
+               "{\"model\":\"claude-x\",\"max_tokens\":100,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}");
+    check_body(ai_build_anthropic_body("claude-x", "Be terse", "hi", 100),
+               "{\"model\":\"claude-x\",\"max_tokens\":100,\"system\":\"Be terse\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}");
+    check_body(ai_build_openai_body("m", "S", "I", 50),
+               "{\"model\":\"m\",\"max_tokens\":50,\"messages\":[{\"role\":\"system\",\"content\":\"S\"},{\"role\":\"user\",\"content\":\"I\"}]}");
+    check_body(ai_build_openai_body("m", "", "I", 50),
+               "{\"model\":\"m\",\"max_tokens\":50,\"messages\":[{\"role\":\"user\",\"content\":\"I\"}]}");
+
+    /* Request bodies: escaping survives a round trip, NULL input becomes "" */
+    {
+        const char *sys = "sys \"q\"\n";
+        const char *in = "in\\x\t\xc3\xa9";
+        char *a = ai_build_anthropic_body("m", sys, in, 1);
+        check_get(a, "model", "m");
+        check_get(a, "system", sys);
+        check_get(a, "messages.0.content", in);
+        free(a);
+
+        char *o = ai_build_openai_body("m", sys, in, 1);
+        check_get(o, "messages.0.content", sys);
+        check_get(o, "messages.1.content", in);
+        free(o);
+
+        char *n = ai_build_anthropic_body("m", NULL, NULL, 1);
+        check_get(n, "messages.0.content", "");
+        check_get(n, "system", NULL);
+        free(n);
+    }
+
+    /* OpenAI-compatible URL */
+    check_url(NULL, "https://api.openai.com/v1/chat/completions");
+    check_url("", "https://api.openai.com/v1/chat/completions");
+    check_url("http://localhost:11434/v1", "http://localhost:11434/v1/chat/completions");
+    check_url("https://openrouter.ai/api/v1/", "https://openrouter.ai/api/v1/chat/completions");
+    check_url("https://x.test/v1///", "https://x.test/v1/chat/completions");
+    check_url("https://x.test/v1/chat/completions", "https://x.test/v1/chat/completions");
+    check_url("  http://h/v1  ", "http://h/v1/chat/completions");
 
     if (failures == 0) printf("test_ai: all passed\n");
     return failures ? 1 : 0;

@@ -315,3 +315,91 @@ char *ai_json_error(const char *json) {
     if (m) return m;
     return ai_json_get_string(json, "message");
 }
+
+/* Request building helpers. */
+
+static int put_lit(Buf *b, const char *s) {
+    return buf_put(b, s, (int)strlen(s));
+}
+
+/* Appends s as an escaped JSON string, with quotes. */
+static int put_json_str(Buf *b, const char *s) {
+    char *e = ai_json_escape(s, (int)strlen(s));
+    if (!e) return 0;
+    int ok = buf_putc(b, '"') && put_lit(b, e) && buf_putc(b, '"');
+    free(e);
+    return ok;
+}
+
+/* Appends "key":"value". */
+static int put_field(Buf *b, const char *key, const char *val) {
+    return buf_putc(b, '"') && put_lit(b, key) && put_lit(b, "\":") && put_json_str(b, val);
+}
+
+static char *finish_body(Buf *b, int ok) {
+    if (!ok) {
+        free(b->p);
+        return NULL;
+    }
+    return b->p;
+}
+
+char *ai_build_anthropic_body(const char *model, const char *system,
+                              const char *input, int max_tokens) {
+    Buf b;
+    if (!buf_init(&b)) return NULL;
+    char num[16];
+    snprintf(num, sizeof num, "%d", max_tokens);
+    int ok = buf_putc(&b, '{') &&
+             put_field(&b, "model", model ? model : "") &&
+             put_lit(&b, ",\"max_tokens\":") && put_lit(&b, num);
+    if (ok && system && *system)
+        ok = buf_putc(&b, ',') && put_field(&b, "system", system);
+    ok = ok && put_lit(&b, ",\"messages\":[{") &&
+         put_field(&b, "role", "user") && buf_putc(&b, ',') &&
+         put_field(&b, "content", input ? input : "") &&
+         put_lit(&b, "}]}");
+    return finish_body(&b, ok);
+}
+
+char *ai_build_openai_body(const char *model, const char *system,
+                           const char *input, int max_tokens) {
+    Buf b;
+    if (!buf_init(&b)) return NULL;
+    char num[16];
+    snprintf(num, sizeof num, "%d", max_tokens);
+    int ok = buf_putc(&b, '{') &&
+             put_field(&b, "model", model ? model : "") &&
+             put_lit(&b, ",\"max_tokens\":") && put_lit(&b, num) &&
+             put_lit(&b, ",\"messages\":[");
+    if (ok && system && *system)
+        ok = put_lit(&b, "{") && put_field(&b, "role", "system") && buf_putc(&b, ',') &&
+             put_field(&b, "content", system) && put_lit(&b, "},");
+    ok = ok && put_lit(&b, "{") && put_field(&b, "role", "user") && buf_putc(&b, ',') &&
+         put_field(&b, "content", input ? input : "") &&
+         put_lit(&b, "}]}");
+    return finish_body(&b, ok);
+}
+
+char *ai_openai_url(const char *base_url) {
+    static const char SUFFIX[] = "/chat/completions";
+    const char *base = base_url ? base_url : "";
+    int s = 0;
+    int e = (int)strlen(base);
+    while (s < e && isspace((unsigned char)base[s])) s++;
+    while (e > s && (isspace((unsigned char)base[e - 1]) || base[e - 1] == '/')) e--;
+    if (e == s) {
+        base = AI_OPENAI_DEFAULT_BASE;
+        s = 0;
+        e = (int)strlen(base);
+    }
+    int suffix_len = (int)sizeof SUFFIX - 1;
+    int has_suffix = e - s >= suffix_len && memcmp(base + e - suffix_len, SUFFIX, suffix_len) == 0;
+    int n = (e - s) + (has_suffix ? 0 : suffix_len);
+    char *out = malloc(n + 1);
+    if (!out) return NULL;
+    memcpy(out, base + s, e - s);
+    if (!has_suffix) memcpy(out + (e - s), SUFFIX, suffix_len);
+    out[n] = '\0';
+    return out;
+}
