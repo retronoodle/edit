@@ -305,6 +305,20 @@ static void draw_browser(int sel, int top, int save_mode, const char *typed) {
     fb_flush();
 }
 
+/* Like read_key(), but lets mouse events through (the browser handles them). */
+static int browser_read_key(void) {
+    while (1) {
+        int k = read_key_wait(-1);
+        if (k == KEY_PASTE) {
+            int len;
+            free(term_take_paste(&len));
+            continue;
+        }
+        if (k == -1) continue;   /* idle timeout (POSIX) */
+        return k;
+    }
+}
+
 /* Shows a file browser over the editor area. Entering a folder changes the
    working directory to it, so the chosen file name is relative to it.
    Open mode returns 1 with the file name in out. Save mode returns 1 with the
@@ -322,7 +336,31 @@ static int browse(int save_mode, const char *suggest, char *out, size_t size) {
         if (sel >= top + browser_rows()) top = sel - browser_rows() + 1;
         draw_browser(sel, top, save_mode, typed);
 
-        int key = read_key();
+        int key = browser_read_key();
+        if (key == KEY_MOUSE) {
+            MouseEvent ev;
+            term_get_mouse(&ev);
+            if (ev.kind == MEV_WHEEL_UP || ev.kind == MEV_WHEEL_DOWN) {
+                int max_top = dir_count - browser_rows();
+                if (max_top < 0) max_top = 0;
+                top += (ev.kind == MEV_WHEEL_UP) ? -3 : 3;
+                if (top < 0) top = 0;
+                if (top > max_top) top = max_top;
+                if (sel < top) sel = top;
+                if (sel >= top + browser_rows()) sel = top + browser_rows() - 1;
+                if (sel >= dir_count) sel = dir_count - 1;
+                follow_selection(save_mode, sel, typed, sizeof(typed));
+                continue;
+            }
+            if (ev.kind != MEV_PRESS || ev.y < 2 || ev.y >= 2 + browser_rows()) continue;
+            int idx = top + (ev.y - 2);
+            if (idx >= dir_count) continue;
+            sel = idx;
+            follow_selection(save_mode, sel, typed, sizeof(typed));
+            /* Save As on a file only selects it (the name is filled in); Enter saves */
+            if (save_mode && !dir_entries[sel].is_dir) continue;
+            key = KEY_ENTER;   /* a click opens a folder or picks a file, like Enter */
+        }
         switch (key) {
             case KEY_UP:
                 if (sel > 0) sel--;

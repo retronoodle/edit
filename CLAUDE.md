@@ -22,11 +22,15 @@ Sources live in `src/` (paths below are relative to it). Unit tests live in `tes
 - `term.c/.h`: frame buffer (`fb_*`, `fb_flush`), console/raw mode, `KEY_*` codes, `read_key()`
 - `buffer.c/.h`: `Editor editor` definition, line storage, editing ops (`insert_char`, `backspace`, ...), `move_cursor`/`adjust_scroll`, `init_editor`
 - `menu.c/.h`: menu tables (`menus[]`, items with label/hint/mnemonic/action), menu-mode keys (`menu_open_key`, `menu_handle_key`), and the `ACT_*` action codes
-- `options.c/.h`: `options` (tab width, line endings, color scheme, line numbers, syntax, word wrap), `options_cycle` (saves after each change), `options_load`/`options_save` (`~/.velo_config`, `key=value` lines; line endings are not saved, they are per file), `options_parse_line` (unit tests in `tests/test_options.c`), `options_label`, `options_base_sgr` (the scheme's SGR; use it instead of a plain `\x1b[0m`), `options_chrome_sgr(ChromeKind)` (bars, tabs, status line, borders, per scheme)
+- `options.c/.h`: `options` (tab width, line endings, color scheme, line numbers, syntax, word wrap, and the AI settings `ai_provider`/`ai_model`/`ai_base_url`/`ai_key` saved in `~/.velo_config`), `options_ai_key()` (env var `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` wins over the stored key), `options_cycle` (saves after each change), `options_load`/`options_save` (`~/.velo_config`, `key=value` lines; line endings are not saved, they are per file), `options_parse_line` (unit tests in `tests/test_options.c`), `options_label`, `options_base_sgr` (the scheme's SGR; use it instead of a plain `\x1b[0m`), `options_chrome_sgr(ChromeKind)` (bars, tabs, status line, borders, per scheme)
 - `ai.c/.h`: pure AI helpers (JSON escape/unescape, reply lookup, request bodies, curl config, reply parsing). No I/O; unit tests in `tests/test_ai.c` (`make test`)
 - `aiask.c/.h`: `ai_ask()`, the blocking AI request. Runs curl via `popen` with the config and body in 0600 temp files (key stays off the command line). Settings come from Options > AI
+- `aisetup.c/.h`: Options > AI setup (`ai_setup()`): prompts for provider, model, base URL and key. The key is shown masked / "set" / "from env" and never echoed
+- `aiedit.c/.h`: Ask AI (Alt+I, Edit menu): prompts for an instruction, sends the selection (or the text around the cursor), and puts the reply in place of the selection (or at the cursor) as one undo step. Strips code fences
+- `aiexplain.c/.h`: Explain (Edit menu): sends the selection and shows the reply in `view_text`
+- `viewer.c/.h`: `view_text()`, a read-only scrollable modal for long text (Esc/Enter/q closes, Up/Down scroll)
 - `gitinfo.c/.h`: cwd (home shortened to `~`) and git branch for the status line, read from `.git` files (no git process); cached, refreshed every 2 s
-- `gitmodal.c/.h`: Alt+G git panel: status of the cwd's repo, Space stages/unstages the selected file (S/U stage or unstage all), commit (staged files only; offers to stage all when none are), push, B branch list (switch / + new branch), M merge a branch, A abort merge. Runs git as a child process (`popen`), unlike gitinfo
+- `gitmodal.c/.h`: Alt+G git panel: status of the cwd's repo, Space stages/unstages the selected file (S/U stage or unstage all), commit (staged files only; offers to stage all when none are), push, B branch list (switch / + new branch), M merge a branch, A abort merge, D drafts a commit message with the AI (diff capped at `DIFF_MAX`) and opens the commit prompt with it for editing. Runs git as a child process (`popen`), unlike gitinfo
 - `ui.c/.h`: status line, menu bar, dropdown, editor area, `refresh_screen`, `show_message`, `prompt_line`, `show_help`
 - `tabs.c/.h`: open documents as tabs. The active document is the global `editor` (plus undo.c's active history); other tabs hold their own copy in a slot. `tab_switch()` moves data between them. Tab bar drawing and hit-testing live here too (`tab_bar_range`, `tab_bar_hit`)
 - `files.c/.h`: save/save-as/new tab/open (`open_path`)/close tab/exit (asks about each modified tab), the folder browser (`browse`, shared by Open and Save As) and the recent files list (`do_open_recent`)
@@ -44,6 +48,8 @@ Sources live in `src/` (paths below are relative to it). Unit tests live in `tes
 - `velo.c`: `main`, main loop, `run_action()` (runs a menu action or key command)
 
 New features should go in their own module (e.g. `search.c`) rather than growing `velo.c`.
+
+AI: one global AI setting (Options > AI setup) is shared by every AI feature. Requests block the UI behind a "Thinking..." message, and the `curl` timeout bounds the wait. Nothing is sent unless the user triggers a feature. AI edits must go through the `buffer.c` edit functions so undo records them.
 
 Edit functions in buffer.c (`insert_char`, `backspace`, ...) mutate text via `raw_*` helpers and then record the change for undo. Undo/redo use the `raw_*` helpers directly so they are not recorded again. Any code that changes lines outside these functions (e.g. file load) must call `undo_clear()`.
 

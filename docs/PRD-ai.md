@@ -128,4 +128,4 @@ Each feature is only a system prompt plus glue code.
 
 ### Phase 9: Docs
 
-- [ ] 9.1 Update `CLAUDE.md` (module list, settings, Options menu) and the in-app help
+- [x] 9.1 Update `CLAUDE.md` (module list, settings, Options menu) and the in-app help

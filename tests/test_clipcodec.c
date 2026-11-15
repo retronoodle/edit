@@ -27,6 +27,15 @@ static void check_clean(const char *in, const char *want) {
     }
 }
 
+static void check_line(const char *in, const char *want) {
+    int start;
+    int end = clip_single_line(in, (int)strlen(in), &start);
+    if ((end - start) != (int)strlen(want) || memcmp(in + start, want, end - start) != 0) {
+        printf("FAIL line(\"%s\") = \"%.*s\", want \"%s\"\n", in, end - start, in + start, want);
+        failures++;
+    }
+}
+
 int main(void) {
     check_b64("", "");
     check_b64("f", "Zg==");
@@ -41,6 +50,13 @@ int main(void) {
     check_clean("tab\there", "tab\there");
     check_clean("bell\x07 \x1b[x", "bell [x");
     check_clean("caf\xc3\xa9", "caf\xc3\xa9");
+
+    check_line("sk-abc", "sk-abc");
+    check_line("sk-abc\n", "sk-abc");
+    check_line("  sk-abc \t\nignored", "sk-abc");
+    check_line("first\nsecond", "first");
+    check_line("   ", "");
+    check_line("", "");
 
     if (failures == 0) printf("test_clipcodec: all passed\n");
     return failures ? 1 : 0;

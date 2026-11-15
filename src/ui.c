@@ -12,6 +12,7 @@
 #include "editor.h"
 #include "term.h"
 #include "clipboard.h"
+#include "clipcodec.h"
 #include "utf8.h"
 #include "menu.h"
 #include "options.h"
@@ -510,6 +511,30 @@ static int prompt_impl(const char *msg, char *buf, int size, int mask, int prefi
         int c = getch_cp();                  /* 0 = non-text key, -1 = nothing usable */
         if (c < 0) continue;
         if (c == 13 || c == 10) break;
+        if (c == KEY_PASTE) {                // pasted text: first line only, appended
+            int plen = 0;
+            char *text = term_take_paste(&plen);
+            if (text) {
+                int start;
+                int end = clip_single_line(text, plen, &start);
+                for (int i = start; i < end; ) {
+                    int cp;
+                    int n = utf8_decode(text + i, end - i, &cp);
+                    if (n <= 0) { i++; continue; }        /* not valid UTF-8: skip the byte */
+                    if (cp < 32 || cp == 127) { i += n; continue; }
+                    if (len + n >= size) break;           /* keep room for the NUL */
+                    memcpy(buf + len, text + i, n);
+                    len += n;
+                    buf[len] = '\0';
+                    if (mask) putchar('*');
+                    else fwrite(text + i, 1, n, stdout);
+                    i += n;
+                }
+                free(text);
+                fflush(stdout);
+            }
+            continue;
+        }
         if (c == 27) {                       // Esc: cancel
             buf[0] = '\0';
             return 0;
@@ -571,8 +596,8 @@ void show_help(void) {
     printf("  Enter           - Select menu item\n");
     printf("  N/O/S/A/E/W/T/V/X - Pick File menu item (New/Open/Save/Save As/Recent/Close Tab/Next/Previous/Exit)\n");
     printf("  F/N/R/G         - Pick Search menu item (Find/Find Next/Replace/Go to Line)\n");
-    printf("  U/R/X/C/P/A     - Pick Edit menu item (Undo/Redo/Cut/Copy/Paste/Select All)\n");
-    printf("  T/L/C/N/Y/W     - Options: tab width / line endings / colors / line numbers / syntax / word wrap (menu stays open)\n");
+    printf("  U/R/X/C/P/A/I/E - Pick Edit menu item (Undo/Redo/Cut/Copy/Paste/Select All/Ask AI/Explain)\n");
+    printf("  T/L/C/N/Y/W/A   - Options: tab width / line endings / colors / line numbers / syntax / word wrap / AI setup (menu stays open)\n");
     printf("  Open (O)        - Browse folders (Enter=open, T=type a name, R=recent)\n");
     printf("  Save As         - Browse folders, type the file name, Enter=save\n");
     printf("  ESC             - Close menu\n\n");
@@ -589,8 +614,13 @@ void show_help(void) {
     printf("  Ctrl+F / F3     - Find / Find next\n");
     printf("  Ctrl+R          - Replace (Y/N/A=all, Esc=stop)\n");
     printf("  Ctrl+G          - Go to line\n");
-    printf("  Alt+G           - Git panel (status, commit, push, branch, merge)\n");
+    printf("  Alt+G           - Git panel (status, commit, push, branch, merge; D = AI commit message)\n");
+    printf("  Alt+I           - Ask AI (instruction + selection, one undo step)\n");
     printf("  Ctrl+Q          - Exit\n\n");
+    printf("AI:\n");
+    printf("  Set up once in Options > AI setup (provider, model, base URL, key).\n");
+    printf("  Env var ANTHROPIC_API_KEY / OPENAI_API_KEY overrides the stored key.\n");
+    printf("  Text is only sent when you use an AI feature.\n\n");
     printf("Editing:\n");
     printf("  Arrow Keys      - Move cursor\n");
     printf("  Shift+Arrows    - Select text\n");

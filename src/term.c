@@ -372,6 +372,8 @@ void set_line_wrap(int enable) {
 /* The termios read times out (VTIME) when idle and returns 0 bytes. glibc
    then latches stdin's EOF flag, so every later getchar() fails without
    reading the keyboard. Clear the flag on each timeout so input resumes. */
+static int read_paste(void);   /* defined below; getch_cp() needs it for ESC[200~ */
+
 static int posix_getc(void) {
     int ch = getchar();
     if (ch == EOF) clearerr(stdin);
@@ -410,6 +412,17 @@ int getch_cp() {
                         c = posix_getc();
                     } while (c != EOF && c != 'M' && c != 'm');
                     continue;
+                }
+                if (b == '2') {
+                    /* ESC[200~ is a bracketed paste: prompts take it too, not just the main loop */
+                    int c1 = posix_getc();
+                    int c2 = c1 == '0' ? posix_getc() : EOF;
+                    int c3 = c2 == '0' ? posix_getc() : EOF;
+                    if (c3 == '~') return read_paste();
+                    /* Not a paste: put the bytes back, last read first */
+                    if (c3 != EOF) ungetc(c3, stdin);
+                    if (c2 != EOF) ungetc(c2, stdin);
+                    if (c1 != EOF) ungetc(c1, stdin);
                 }
                 if (b != EOF) ungetc(b, stdin);
             }

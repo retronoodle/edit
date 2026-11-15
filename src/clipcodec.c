@@ -37,3 +37,13 @@ int clip_clean_paste(char *text, int len) {
     }
     return o;
 }
+
+int clip_single_line(const char *text, int len, int *start) {
+    int end = 0;
+    while (end < len && text[end] != '\n') end++;   /* first line only */
+    int s = 0;
+    while (s < end && (text[s] == ' ' || text[s] == '\t')) s++;
+    while (end > s && (text[end - 1] == ' ' || text[end - 1] == '\t')) end--;
+    *start = s;
+    return end;
+}

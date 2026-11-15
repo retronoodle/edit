@@ -11,4 +11,9 @@ char *clip_b64_encode(const char *text, int len);
    characters other than tab and newline are dropped. Returns the new length. */
 int clip_clean_paste(char *text, int len);
 
+/* For a single-line field: finds the first line of text[0..len), trimmed of
+   spaces and tabs at both ends. Sets *start to its first byte and returns its
+   end (exclusive). Text after the first newline is dropped. */
+int clip_single_line(const char *text, int len, int *start);
+
 #endif
