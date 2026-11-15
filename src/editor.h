@@ -37,6 +37,8 @@ typedef struct {
     int selected_item;
     int sel_active;         /* selection anchor is (sel_x, sel_y); the cursor is the other end */
     int sel_x, sel_y;
+    long disk_mtime;        /* file's mtime and size when we last loaded or saved it (watch.c) */
+    long disk_size;
 } Editor;
 
 /* The document being edited. Defined in buffer.c. */

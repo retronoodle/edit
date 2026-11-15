@@ -19,6 +19,7 @@
 #include "tabs.h"
 #include "recent.h"
 #include "gitmodal.h"
+#include "watch.h"
 
 #define IDLE_POLL_MS 1000   /* how often the main loop wakes when no key is pressed */
 
@@ -111,7 +112,8 @@ int main(int argc, char *argv[]) {
         }
 
         int key = read_key_wait(IDLE_POLL_MS);
-        if (key == -1) {        /* timed out (or EOF): loop again so backups keep running */
+        if (key == -1) {        /* timed out (or EOF): check the file on disk, then loop so backups keep running */
+            if (watch_tick()) needs_redraw = 1;
             continue;
         }
         if (key == KEY_RESIZE) {    /* window changed size: re-read it and redraw all */

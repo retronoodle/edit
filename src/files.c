@@ -21,6 +21,7 @@
 #include "files.h"
 #include "undo.h"
 #include "recovery.h"
+#include "watch.h"
 #include "tabs.h"
 #include "recent.h"
 #include "utf8.h"
@@ -42,6 +43,7 @@ static int write_file(const char *name) {
     fclose(file);
     editor.modified = 0;
     recovery_discard_name(name);   /* the backup is stale now that the file is saved */
+    watch_record();                /* our own write is not an outside change */
 
     char msg[320];   /* room for "Saved " plus a full file name */
     snprintf(msg, sizeof(msg), "Saved %s", name);
@@ -484,6 +486,7 @@ int open_path(const char *name, int create_missing) {
     strcpy(editor.filename, name);
     tab_mark_named();
     editor.modified = 0;
+    watch_record();
     if (in) recent_add(name);   /* only files that exist go in the recent list */
     return 1;
 }

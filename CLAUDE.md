@@ -35,6 +35,7 @@ Sources live in `src/` (paths below are relative to it). Unit tests live in `tes
 - `undo.c/.h`: undo/redo operation log (`undo_record_*` called from buffer.c, `undo_undo`/`undo_redo`, Ctrl+Z/Ctrl+Y)
 - `search.c/.h`: Find, Find Next, Replace, Go to Line (Ctrl+F, F3, Ctrl+R, Ctrl+G; Search menu)
 - `utf8.c/.h`: UTF-8 decode/encode, character boundaries, display width (`cp_width`, `utf8_col`, `utf8_byte_at_col`). `tests/test_utf8.c` holds its unit tests (`make test`)
+- `watch.c/.h`: detects the active file changing on disk (mtime/size, polled on the 1 s idle tick, no threads) and offers to reload. `watch_record()` runs after a load or save so our own writes never prompt
 - `recovery.c/.h`: crash recovery. `recovery_tick()` (main loop) writes `<file>.recover` for every modified tab every 30 s; `recovery_discard_name()` runs after save, on discard and on tab close; `recovery_check_on_startup()` offers to restore the active tab
 - `mouse.c/.h`: mouse clicks, drag selection, wheel scrolling and menu-bar clicks (`mouse_handle`). term.c reads the events (`KEY_MOUSE`, `term_get_mouse`); `read_key()` skips them, so only the main loop sees mouse input
 - `velo.c`: `main`, main loop, `run_action()` (runs a menu action or key command)
