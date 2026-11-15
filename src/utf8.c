@@ -82,6 +82,28 @@ int cp_width(int cp) {
     return 1;
 }
 
+/* Tab stop used by utf8_cell_w. Set from options.tab_width. */
+static int tab_stop = 4;
+
+void utf8_set_tab_width(int w) {
+    if (w >= 1) tab_stop = w;
+}
+
+int utf8_cell_w(int cp, int col) {
+    if (cp == '\t') return tab_stop - col % tab_stop;   /* spaces to the next tab stop */
+    if ((cp >= 0 && cp < 0x20) || cp == 0x7F) return 2; /* shown as ^X */
+    return cp_width(cp);
+}
+
+int utf8_is_c0_ctrl(int cp) {
+    return cp >= 0 && (cp < 0x20 || cp == 0x7F) && cp != '\t';
+}
+
+void utf8_ctrl_label(int cp, char out[2]) {
+    out[0] = '^';
+    out[1] = cp == 0x7F ? '?' : (char)(cp + 0x40);
+}
+
 /* Length of the character starting at i (base plus following zero-width marks). */
 static int char_len(const char *text, int len, int i) {
     int cp;
@@ -121,7 +143,7 @@ int utf8_col(const char *text, int len, int i) {
         int nxt = utf8_next(text, len, pos);
         int cp;
         utf8_decode(text + pos, len - pos, &cp);
-        col += cp_width(cp);
+        col += utf8_cell_w(cp, col);
         pos = nxt;
     }
     return col;
@@ -133,7 +155,7 @@ int utf8_byte_at_col(const char *text, int len, int col) {
         int nxt = utf8_next(text, len, pos);
         int cp;
         utf8_decode(text + pos, len - pos, &cp);
-        int w = cp_width(cp);
+        int w = utf8_cell_w(cp, c);
         if (c + w > col) break;
         c += w;
         pos = nxt;
@@ -150,16 +172,17 @@ int utf8_width(const char *text, int len) {
    has at least one row, even when empty. */
 int utf8_wrap_rows(const char *text, int len, int tw) {
     if (tw < 1) tw = 1;
-    int rows = 1, row_col = 0, pos = 0;
+    int rows = 1, row_col = 0, abs_col = 0, pos = 0;
     while (pos < len) {
         int cp;
         utf8_decode(text + pos, len - pos, &cp);
-        int w = cp_width(cp);
+        int w = utf8_cell_w(cp, abs_col);
         if (row_col > 0 && row_col + w > tw) {
             rows++;
             row_col = 0;
         }
         row_col += w;
+        abs_col += w;
         pos = utf8_next(text, len, pos);
     }
     return rows;
@@ -175,7 +198,7 @@ void utf8_wrap_row(const char *text, int len, int tw, int row,
     while (pos < len) {
         int cp;
         utf8_decode(text + pos, len - pos, &cp);
-        int w = cp_width(cp);
+        int w = utf8_cell_w(cp, abs_col);
         if (row_col > 0 && row_col + w > tw) {
             r++;
             row_col = 0;
@@ -197,23 +220,24 @@ void utf8_wrap_row(const char *text, int len, int tw, int row,
 void utf8_wrap_cursor(const char *text, int len, int tw, int byte,
                       int *row, int *col) {
     if (tw < 1) tw = 1;
-    int r = 0, row_col = 0, pos = 0;
+    int r = 0, row_col = 0, abs_col = 0, pos = 0;
     while (pos < len && pos < byte) {
         int cp;
         utf8_decode(text + pos, len - pos, &cp);
-        int w = cp_width(cp);
+        int w = utf8_cell_w(cp, abs_col);
         if (row_col > 0 && row_col + w > tw) {
             r++;
             row_col = 0;
         }
         row_col += w;
+        abs_col += w;
         pos = utf8_next(text, len, pos);
     }
     /* The cursor sits before the character at byte, which may itself wrap */
     if (pos < len) {
         int cp;
         utf8_decode(text + pos, len - pos, &cp);
-        int w = cp_width(cp);
+        int w = utf8_cell_w(cp, abs_col);
         if (row_col > 0 && row_col + w > tw) {
             r++;
             row_col = 0;

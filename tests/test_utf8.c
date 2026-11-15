@@ -89,6 +89,49 @@ int main(void) {
     utf8_wrap_cursor(wd, 5, 2, 4, &r, &c);                    /* 'b' starts row 2 */
     CHECK(r == 2 && c == 0);
 
+    /* tabs fill to the next tab stop (width 4 by default) */
+    utf8_set_tab_width(4);
+    CHECK(utf8_cell_w('\t', 0) == 4);
+    CHECK(utf8_cell_w('\t', 1) == 3);
+    CHECK(utf8_cell_w('\t', 3) == 1);
+    CHECK(utf8_cell_w('\t', 4) == 4);
+    utf8_set_tab_width(8);
+    CHECK(utf8_cell_w('\t', 3) == 5);
+    utf8_set_tab_width(4);
+
+    /* controls show as ^X: two columns */
+    CHECK(utf8_cell_w(0x01, 0) == 2);
+    CHECK(utf8_cell_w(0x7F, 5) == 2);
+    CHECK(utf8_is_c0_ctrl(0x01) && utf8_is_c0_ctrl(0x7F));
+    CHECK(!utf8_is_c0_ctrl('\t') && !utf8_is_c0_ctrl('a'));
+    char lab[2];
+    utf8_ctrl_label(0x01, lab);
+    CHECK(lab[0] == '^' && lab[1] == 'A');
+    utf8_ctrl_label(0x7F, lab);
+    CHECK(lab[0] == '^' && lab[1] == '?');
+
+    /* "a\tb" at width 4: a(1), tab to col 4 (3 cols), b at col 4 */
+    const char *tb = "a\tb";
+    CHECK(utf8_col(tb, 3, 1) == 1);
+    CHECK(utf8_col(tb, 3, 2) == 4);
+    CHECK(utf8_col(tb, 3, 3) == 5);
+    CHECK(utf8_byte_at_col(tb, 3, 1) == 1);   /* col 1 is inside the tab: snaps to its start */
+    CHECK(utf8_byte_at_col(tb, 3, 4) == 2);
+    CHECK(utf8_byte_at_col(tb, 3, 5) == 3);
+
+    /* a control byte in a line is two columns */
+    const char *cc = "a\x01" "b";
+    CHECK(utf8_width(cc, 3) == 4);
+    CHECK(utf8_byte_at_col(cc, 3, 3) == 2);
+
+    /* wrap counts tab width: "a\tbc" at width 4 -> "a" + tab(3) = 4 | "bc" */
+    const char *tw4 = "a\tbc";
+    CHECK(utf8_wrap_rows(tw4, 4, 4) == 2);
+    utf8_wrap_row(tw4, 4, 4, 1, &st, &en, &sc);
+    CHECK(st == 2 && en == 4 && sc == 4);
+    utf8_wrap_cursor(tw4, 4, 4, 2, &r, &c);   /* cursor before the 'b' is on row 1 col 0 */
+    CHECK(r == 1 && c == 0);
+
     if (failures == 0) printf("utf8 tests passed\n");
     return failures ? 1 : 0;
 }

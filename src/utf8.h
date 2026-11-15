@@ -12,6 +12,20 @@ int utf8_encode(int cp, char *out);
 /* Display columns for a code point: 0 (combining), 1, or 2 (wide). */
 int cp_width(int cp);
 
+/* Tab stop width for utf8_cell_w (set from options.tab_width). */
+void utf8_set_tab_width(int w);
+
+/* Display columns a character takes when it starts at display column col.
+   A tab fills to the next tab stop; other C0 controls and DEL show as ^X (2 columns);
+   everything else is cp_width. */
+int utf8_cell_w(int cp, int col);
+
+/* 1 for C0 controls and DEL (drawn as ^X), 0 otherwise. Tabs are not included. */
+int utf8_is_c0_ctrl(int cp);
+
+/* Writes the two-character ^X label for a control code point (see utf8_is_c0_ctrl). */
+void utf8_ctrl_label(int cp, char out[2]);
+
 /* Byte offset of the start of the character after the one at i (i < len). */
 int utf8_next(const char *text, int len, int i);
 

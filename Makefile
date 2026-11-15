@@ -19,8 +19,8 @@ $(TEST): $(TESTDIR)/test_utf8.c $(SRC)/utf8.c $(SRC)/utf8.h
 $(TEST_SYNTAX): $(TESTDIR)/test_syntax.c $(SRC)/syntax.c $(SRC)/syntax.h
 	$(CC) $(CFLAGS) -I$(SRC) -o $(TEST_SYNTAX) $(TESTDIR)/test_syntax.c $(SRC)/syntax.c
 
-$(TEST_OPTIONS): $(TESTDIR)/test_options.c $(SRC)/options.c $(SRC)/options.h $(SRC)/recent.c $(SRC)/recent.h
-	$(CC) $(CFLAGS) -I$(SRC) -o $(TEST_OPTIONS) $(TESTDIR)/test_options.c $(SRC)/options.c $(SRC)/recent.c
+$(TEST_OPTIONS): $(TESTDIR)/test_options.c $(SRC)/options.c $(SRC)/options.h $(SRC)/recent.c $(SRC)/recent.h $(SRC)/utf8.c $(SRC)/utf8.h
+	$(CC) $(CFLAGS) -I$(SRC) -o $(TEST_OPTIONS) $(TESTDIR)/test_options.c $(SRC)/options.c $(SRC)/recent.c $(SRC)/utf8.c
 
 $(TEST_CLIPCODEC): $(TESTDIR)/test_clipcodec.c $(SRC)/clipcodec.c $(SRC)/clipcodec.h
 	$(CC) $(CFLAGS) -I$(SRC) -o $(TEST_CLIPCODEC) $(TESTDIR)/test_clipcodec.c $(SRC)/clipcodec.c

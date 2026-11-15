@@ -235,7 +235,8 @@ int text_w(void) {
 
 /* Draws one screen row of a file line. scroll_x and column positions are in
    display columns; each character is drawn whole, so wide characters take
-   two cells and never split. Control and invalid bytes show as '?'.
+   two cells and never split. Tabs fill to the next tab stop, C0 controls show as ^X,
+   and invalid bytes show as '?'.
    The line number (if shown) sits in the gutter and is not part of the text. */
 /* Per-byte token kinds for the line being drawn. Grown on demand; NULL if out of memory. */
 static unsigned char *kind_buf = NULL;
@@ -285,7 +286,7 @@ static void draw_row(int file_line, int show_num, int from, int to, int col0, in
             int nxt = utf8_next(ln->text, ln->len, pos);
             int cp;
             utf8_decode(ln->text + pos, ln->len - pos, &cp);
-            int w = cp_width(cp);
+            int w = utf8_cell_w(cp, col);
 
             int start = col > scroll ? col : scroll;
             int end = col + w < right ? col + w : right;
@@ -313,7 +314,13 @@ static void draw_row(int file_line, int show_num, int from, int to, int col0, in
                 int fully_visible = col >= scroll && col + w <= right;
                 if (!fully_visible) {
                     for (int k = start; k < end; k++) fb_write(" ", 1);   /* wide char cut at an edge */
-                } else if (cp < 0 || cp < 0x20 || (cp >= 0x7F && cp < 0xA0)) {
+                } else if (cp == '\t') {
+                    for (int k = start; k < end; k++) fb_write(" ", 1);
+                } else if (utf8_is_c0_ctrl(cp)) {
+                    char lab[2];
+                    utf8_ctrl_label(cp, lab);
+                    fb_write(lab, 2);
+                } else if (cp < 0 || (cp >= 0x7F && cp < 0xA0)) {
                     fb_write("?", 1);
                 } else {
                     fb_write(ln->text + pos, nxt - pos);   /* includes any combining marks */

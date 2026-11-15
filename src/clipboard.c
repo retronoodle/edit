@@ -76,7 +76,7 @@ static int byte_from_col(const char *t, int len, int col) {
         int nxt = utf8_next(t, len, pos);
         int cp;
         utf8_decode(t + pos, len - pos, &cp);
-        c += cp_width(cp);
+        c += utf8_cell_w(cp, c);
         pos = nxt;
     }
     return pos;

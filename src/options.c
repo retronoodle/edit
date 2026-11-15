@@ -6,6 +6,7 @@
 #include "menu.h"
 #include "options.h"
 #include "recent.h"   /* home_file_path */
+#include "utf8.h"     /* tab stops for display columns */
 
 #define CONFIG_NAME ".velo_config"
 
@@ -24,6 +25,7 @@ void options_cycle(int action) {
     switch (action) {
         case ACT_TAB_WIDTH:
             options.tab_width = options.tab_width == 2 ? 4 : options.tab_width == 4 ? 8 : 2;
+            utf8_set_tab_width(options.tab_width);
             break;
         case ACT_LINE_ENDS:
             options.crlf = !options.crlf;
@@ -60,6 +62,7 @@ static int apply_option(const char *key, const char *val) {
     if (strcmp(key, "tab_width") == 0) {
         if (n != 2 && n != 4 && n != 8) return 0;
         options.tab_width = n;
+        utf8_set_tab_width(n);
     } else if (strcmp(key, "scheme") == 0) {
         if (n < 0 || n > 2) return 0;
         options.scheme = n;
