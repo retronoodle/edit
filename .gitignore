@@ -9,3 +9,5 @@ test_options
 test_options.exe
 test_clipcodec
 test_clipcodec.exe
+test_ai
+test_ai.exe

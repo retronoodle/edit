@@ -91,10 +91,10 @@ Each feature is only a system prompt plus glue code.
 
 ### Phase 3: JSON helpers
 
-- [ ] 3.1 Create `ai.c/.h` and add them to `SOURCES`/`HEADERS` in the Makefile
-- [ ] 3.2 Add JSON string escape and unescape (including `\uXXXX` and surrogate pairs)
-- [ ] 3.3 Add a field extractor for the reply text and the API error message
-- [ ] 3.4 Add `tests/test_ai.c` for the helpers and a `make test` target entry
+- [x] 3.1 Create `ai.c/.h` and add them to `SOURCES`/`HEADERS` in the Makefile
+- [x] 3.2 Add JSON string escape and unescape (including `\uXXXX` and surrogate pairs)
+- [x] 3.3 Add a field extractor for the reply text and the API error message
+- [x] 3.4 Add `tests/test_ai.c` for the helpers and a `make test` target entry
 
 ### Phase 4: Request building
 
