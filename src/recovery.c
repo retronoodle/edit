@@ -72,19 +72,26 @@ void recovery_discard_name(const char *name) {
     remove(tmp);
 }
 
-/* Offers to restore a backup left by an earlier run that did not exit cleanly.
-   Y restores it (the document stays modified); N deletes it. There is no
-   Esc: keeping the backup while typing new text would overwrite it anyway. */
-void recovery_check_on_startup(void) {
+/* Offers to restore the backup of the active tab, if it has one. Y restores it
+   (the document stays modified); N deletes it. There is no Esc: keeping the
+   backup while typing new text would overwrite it anyway.
+   Returns 0 if input closed, so the caller stops asking. */
+static int offer_restore(void) {
     char path[PATH_BUF], tmp[PATH_BUF];
-    if (!backup_paths(editor.filename, path, tmp)) return;
+    if (!backup_paths(editor.filename, path, tmp)) return 1;
 
     FILE *in = fopen(path, "rb");
     if (!in) in = fopen(tmp, "rb");   /* a crash mid-write leaves only the .tmp copy */
-    if (!in) return;
+    if (!in) return 1;
 
+    /* Keep the question whole: the file name gets whatever room is left */
+    int room = screen_w - 44;
+    if (room < 0) room = 0;
+    char question[PATH_BUF];
+    snprintf(question, sizeof(question), "Unsaved changes in %.*s. Recover? (Y)es / (N)o",
+             room, editor.filename);
     gotoxy(0, screen_h - 2);
-    printf("%-*s", screen_w - 1, "Unsaved changes found. Recover them? (Y)es / (N)o");
+    printf("%-*.*s", screen_w - 1, screen_w - 1, question);
     fflush(stdout);
 
     while (1) {
@@ -93,16 +100,28 @@ void recovery_check_on_startup(void) {
             load_stream(in);
             fclose(in);
             editor.modified = 1;
-            return;
+            return 1;
         }
         if (c == 'n' || c == 'N') {
             fclose(in);
             recovery_discard_name(editor.filename);
-            return;
+            return 1;
         }
         if (c == -1) {          /* input closed: decide nothing, keep the backup */
             fclose(in);
-            return;
+            return 0;
         }
     }
+}
+
+/* Offers to restore a backup for each open tab that has a file name. Runs
+   from the main loop start-up, so the tab it was on is switched back afterwards. */
+void recovery_check_on_startup(void) {
+    int start = tab_current();
+    for (int i = 0; i < tab_count(); i++) {
+        if (!tab_named(i)) continue;   /* untitled tabs have no backup */
+        tab_switch(i);
+        if (!offer_restore()) break;
+    }
+    tab_switch(start);
 }
