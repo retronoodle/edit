@@ -36,6 +36,17 @@ static int merging = 0;          /* a merge is stopped (MERGE_HEAD exists) */
 static int top = 0;             /* first visible file row */
 static char msg[MSG_MAX];       /* result of the last action, or a git error */
 
+/* Output panel: the last git action, replaced by each new one. */
+#define OUT_ROWS 4        /* header line + 3 tail lines of output */
+#define OUT_MIN_H 10      /* below this screen height there is no panel */
+typedef enum { OUT_NONE, OUT_RUNNING, OUT_OK, OUT_FAILED } OutState;
+static OutState out_state = OUT_NONE;
+static char out_label[32] = "";  /* e.g. "git push" */
+static int out_rc = 0;
+static char *out_text = NULL;    /* full output of that action (malloc'd) */
+
+static int out_shown(void) { return screen_h >= OUT_MIN_H; }
+
 /* Branch list (B = switch, M = merge). */
 static int picking = 0;          /* 1 = the branch list is showing */
 static int pick_merge = 0;       /* 1 = list picks a merge source; 0 = picks a branch to switch to */
@@ -68,7 +79,8 @@ static void msg_from_output(const char *text, int want_last) {
 }
 
 static int list_rows(void) {
-    int r = screen_h - 3;   /* rows 1 .. screen_h-3; then message and footer rows */
+    /* rows 1 ..; then the output panel (if shown), message and footer rows */
+    int r = screen_h - 3 - (out_shown() ? OUT_ROWS : 0);
     return r < 1 ? 1 : r;
 }
 
@@ -144,6 +156,13 @@ static void clear_status(void) {
     header = "";
     in_repo = 0;
     merging = 0;
+}
+
+static void clear_output(void) {
+    free(out_text);
+    out_text = NULL;
+    out_state = OUT_NONE;
+    out_label[0] = '\0';
 }
 
 /* Reads git status. Not being in a repo makes git exit non-zero, which is how
@@ -250,6 +269,60 @@ static void summary_text(char *buf, size_t size) {
     }
 }
 
+static void put_row(int y, const char *sgr, const char *text);
+
+/* Output panel above the message row: a header (label and state), then the last
+   three non-empty lines of output, where git puts the reason. */
+static void draw_panel(void) {
+    if (!out_shown()) return;
+    int y0 = screen_h - 2 - OUT_ROWS;
+    char head[sizeof out_label + 64];
+    char row_sgr[64];
+    const char *hsgr = options_base_sgr();
+
+    switch (out_state) {
+        case OUT_RUNNING:
+            snprintf(head, sizeof head, "  $ %s  running...", out_label);
+            hsgr = options_chrome_sgr(CH_BAR);
+            break;
+        case OUT_OK:
+            snprintf(head, sizeof head, "  $ %s  done", out_label);
+            snprintf(row_sgr, sizeof row_sgr, "%s%s", options_base_sgr(), kind_sgr[options.scheme][FS_NEW]);
+            hsgr = row_sgr;
+            break;
+        case OUT_FAILED:
+            snprintf(head, sizeof head, "  $ %s  failed (exit %d)", out_label, out_rc);
+            snprintf(row_sgr, sizeof row_sgr, "%s%s", options_base_sgr(), kind_sgr[options.scheme][FS_CONFLICT]);
+            hsgr = row_sgr;
+            break;
+        default:
+            head[0] = '\0';
+            break;
+    }
+    put_row(y0, hsgr, head);
+
+    /* Last three non-empty lines, kept in a small ring. */
+    char tl[OUT_ROWS - 1][300];
+    int nt = 0;
+    const char *p = out_text ? out_text : "";
+    while (*p) {
+        const char *eol = strchr(p, '\n');
+        size_t l = eol ? (size_t)(eol - p) : strlen(p);
+        if (l > 0 && p[l - 1] == '\r') l--;
+        if (l > 0) {
+            snprintf(tl[nt % (OUT_ROWS - 1)], sizeof tl[0], "%.*s", (int)l, p);
+            nt++;
+        }
+        if (!eol) break;
+        p = eol + 1;
+    }
+    int start = nt > OUT_ROWS - 1 ? nt - (OUT_ROWS - 1) : 0;
+    for (int i = 0; i < OUT_ROWS - 1; i++) {
+        const char *t = (start + i < nt) ? tl[(start + i) % (OUT_ROWS - 1)] : "";
+        put_row(y0 + 1 + i, options_base_sgr(), t);
+    }
+}
+
 /* Draws one full-width row. Text is cut at a character boundary so it never
    runs into the last column. */
 static void put_row(int y, const char *sgr, const char *text) {
@@ -294,6 +367,8 @@ static void draw(void) {
         }
         put_row(1 + i, sgr, t);
     }
+
+    draw_panel();
 
     char sum[160] = "";
     if (nfiles > 0) summary_text(sum, sizeof sum);
@@ -406,6 +481,7 @@ static void draw_pick(void) {
         put_row(1 + i, sgr, t);
     }
 
+    draw_panel();
     put_row(screen_h - 2, options_base_sgr(), msg[0] ? msg : "");
     put_row(screen_h - 1, options_chrome_sgr(CH_STATUS), " Enter Pick  Up/Down Move  Esc Back");
     fb_flush();
@@ -428,6 +504,23 @@ static int valid_branch_name(const char *s) {
         if (!(isalnum((unsigned char)*q) || *q == '.' || *q == '_' || *q == '/' || *q == '-')) return 0;
     }
     return 1;
+}
+
+/* Runs a git action for the output panel. RUNNING is drawn before the blocking
+   call so a slow push shows it is in progress. Clears msg. Returns the exit status. */
+static int run_git(const char *label, const char *cmd) {
+    snprintf(out_label, sizeof out_label, "%s", label);
+    free(out_text);
+    out_text = NULL;
+    out_state = OUT_RUNNING;
+    msg[0] = '\0';
+    if (picking) draw_pick();
+    else draw();
+
+    int rc = run_cmd(cmd, &out_text);
+    out_rc = rc;
+    out_state = rc == 0 ? OUT_OK : OUT_FAILED;
+    return rc;
 }
 
 /* Appends the reload reminder to a success message (open files are not reloaded). */
@@ -461,24 +554,15 @@ static void do_commit(void) {
     fputs("\n", f);
     fclose(f);
 
-    char *out = NULL;
-    int rc = run_cmd("git add -A", &out);
-    if (rc != 0) {
-        msg_from_output(out ? out : "", 1);
-        free(out);
+    if (run_git("git add", "git add -A") != 0) {
         remove(path);
         return;
     }
-    free(out);
-    out = NULL;
 
     char cmd[CMD_MAX];
     snprintf(cmd, sizeof cmd, "git commit -F \"%s\"", path);
-    rc = run_cmd(cmd, &out);
+    run_git("git commit", cmd);
     remove(path);
-    /* success: first line is "[branch hash] message"; failure: the reason is usually last */
-    msg_from_output(out ? out : "", rc != 0);
-    free(out);
     load_status();
 }
 
@@ -506,15 +590,12 @@ static void do_push(void) {
 #endif
     push_log("--- push start ---");
     push_log(cmd);
-    char *out = NULL;
-    int rc = run_cmd(cmd, &out);
+    int rc = run_git("git push", cmd);
     char rcline[64];
     snprintf(rcline, sizeof rcline, "exit status: %d", rc);
     push_log(rcline);
-    push_log(out && *out ? out : "(no output)");
+    push_log(out_text && *out_text ? out_text : "(no output)");
     push_log("--- push end ---");
-    msg_from_output(out ? out : "", 1);
-    free(out);
     load_status();
 }
 
@@ -523,11 +604,7 @@ static void do_switch(const char *name) {
     if (!valid_branch_name(name)) { set_msg("Branch name not allowed."); return; }
     char cmd[CMD_MAX];
     snprintf(cmd, sizeof cmd, "git checkout %s", name);
-    char *out = NULL;
-    int rc = run_cmd(cmd, &out);
-    msg_from_output(out ? out : "", 0);
-    free(out);
-    if (rc == 0) add_reload_hint();
+    if (run_git("git checkout", cmd) == 0) add_reload_hint();
     load_status();
 }
 
@@ -540,11 +617,7 @@ static void do_new_branch(void) {
     if (!valid_branch_name(name)) { set_msg("Branch name not allowed (letters, digits, . _ / -)."); return; }
     char cmd[CMD_MAX];
     snprintf(cmd, sizeof cmd, "git checkout -b %s", name);
-    char *out = NULL;
-    int rc = run_cmd(cmd, &out);
-    msg_from_output(out ? out : "", 0);
-    free(out);
-    if (rc == 0) set_msg("Created and switched to a new branch.");
+    if (run_git("git checkout -b", cmd) == 0) set_msg("Created and switched to a new branch.");
     load_status();
 }
 
@@ -553,10 +626,7 @@ static void do_merge(const char *name) {
     if (!valid_branch_name(name)) { set_msg("Branch name not allowed."); return; }
     char cmd[CMD_MAX];
     snprintf(cmd, sizeof cmd, "git merge --no-edit %s", name);
-    char *out = NULL;
-    int rc = run_cmd(cmd, &out);
-    msg_from_output(out ? out : "", 1);
-    free(out);
+    int rc = run_git("git merge", cmd);
     load_status();
     if (rc == 0) {
         add_reload_hint();
@@ -568,10 +638,7 @@ static void do_merge(const char *name) {
 }
 
 static void do_merge_abort(void) {
-    char *out = NULL;
-    int rc = run_cmd("git merge --abort", &out);
-    msg_from_output(out ? out : "", rc != 0);
-    free(out);
+    run_git("git merge --abort", "git merge --abort");
     load_status();
 }
 
@@ -648,6 +715,7 @@ void git_modal(void) {
 
     clear_branches();
     clear_status();
+    clear_output();
     set_cursor_visibility(1);
     clear_screen();
 }
