@@ -5,11 +5,11 @@ What the editor needs to move from a DOS-style toy to something that feels curre
 ## Next Up
 
 1. ~~**Config file.**~~ (done) Options are saved to `~/.velo_config` on every change and loaded at startup. Line endings stay per file.
-2. **Undo and the modified flag.** Track the save point so undoing back to the saved state clears `*`. Lives in `undo.c` plus the modified flag in `buffer.c`.
-3. **Tabs and control characters render as `?`.** Display only: saving writes the raw bytes, so files are not corrupted (`files.c` `save`, `ui.c` `draw_editor_area`). Render tabs as spaces to the next tab stop and other control characters in a readable form (e.g. `^I`), so they are visible and easy to edit.
-4. **Crash recovery for all tabs.** Startup only offers to restore the first tab. Offer each tab that has a `.recover` file (`recovery.c`, `recovery_check_on_startup`).
-5. **System clipboard.** Copy and paste go through the Windows clipboard (`OpenClipboard`, `SetClipboardData`/`GetClipboardData` with `CF_UNICODETEXT` converted to and from UTF-8), so text moves to and from other apps. Check first whether Windows Terminal takes Ctrl+C/Ctrl+V; if so, its paste arrives as typed text and needs a workaround.
-6. **Non-ASCII search and grapheme clustering.** Case-folding is ASCII only, and ZWJ emoji and flags split apart when the cursor moves. Lower priority and more work than the items above.
+2. ~~**Undo and the modified flag.**~~ (done, #3) Undoing back to the saved state clears `*`. Lives in `undo.c` plus the modified flag in `buffer.c`.
+3. ~~**Tabs and control characters render as `?`.**~~ (done) Tabs render to the next tab stop and control characters show as `^X` (`utf8_cell_w`, `ui.c` `draw_editor_area`).
+4. ~~**Crash recovery for all tabs.**~~ (done) Startup offers to restore every tab that has a `.recover` file (`recovery.c`, `recovery_check_on_startup`).
+5. ~~**System clipboard.**~~ (done) Copy sets the system clipboard (OSC 52 on POSIX, the Windows clipboard on Windows). Ctrl+V reads the system clipboard first (`wl-paste`, `xclip`, `xsel` on Linux) and falls back to the internal one. Terminal pastes arrive via bracketed paste (`clipboard.c`).
+6. ~~**Non-ASCII search and grapheme clustering.**~~ (done, #6) Case-folding is ASCII only, and ZWJ emoji and flags split apart when the cursor moves. Lower priority and more work than the items above.
 
 ## Priority Order (Core Functionality)
 
@@ -18,11 +18,11 @@ What the editor needs to move from a DOS-style toy to something that feels curre
 
 ### 2. ~~Undo/redo~~ (done)
 - Ctrl+Z undoes, Ctrl+Y redoes. Typing and deleting runs merge into one step; cursor moves end a step. Lives in `undo.c`.
-- Open: save-point tracking (see Next Up 2).
+- Save-point tracking done (see Next Up 2).
 
-### 3. ~~Clipboard~~ (done, internal only)
+### 3. ~~Clipboard~~ (done)
 - Shift+arrows select (shown in reverse video). Ctrl+X/C/V cut/copy/paste; typing or Delete replaces a selection. Each cut, paste or replace is one undo step. Lives in `clipboard.c`.
-- Still open: system clipboard (see Next Up 5).
+- System clipboard done (see Next Up 5).
 
 ### 4. ~~Search and replace~~ (done)
 - Find (Ctrl+F, case-insensitive), Find Next (F3, wraps), Replace (Ctrl+R, Y/N/A/Esc, from cursor to end, one undo step), Go to Line (Ctrl+G). All in the Search menu too. Lives in `search.c`.
@@ -30,7 +30,7 @@ What the editor needs to move from a DOS-style toy to something that feels curre
 
 ### 5. ~~UTF-8 support~~ (done)
 - Text is stored as UTF-8. Typing, paste, load and save handle non-ASCII; the cursor steps by whole characters; wide characters (CJK, emoji) take two columns. Lives in `utf8.c`.
-- Limits: no grapheme clustering (ZWJ emoji and flags split apart), no right-to-left, search case-folding is ASCII only, and tabs or control characters show as `?` (see Next Up 3).
+- Limits: no right-to-left.
 - Non-ASCII file names (command line, folder browser) still go through the ANSI code page on Windows.
 
 ### 6. ~~Interactive menu bar~~ (done)
@@ -41,7 +41,7 @@ What the editor needs to move from a DOS-style toy to something that feels curre
 
 ### 7. ~~Line wrapping~~ (done, optional)
 - Options > Word wrap soft-wraps lines at the text width. Wrap math lives in `utf8.c`; drawing in `ui.c`. Horizontal scrolling stays at 0 while wrap is on.
-- Open: check how horizontal scrolling behaves with wrap off on long lines.
+- Horizontal scrolling with wrap off checked (#8).
 
 ### 8. ~~Resize-aware layout~~ (done)
 - The size is read at startup and on window resize (`term_update_size` in `term.c`). Drawing, scrolling, prompts and the file browser all use it. Minimum 40x10; smaller windows are laid out as 40x10. The frame buffer grows to fit.
@@ -49,7 +49,7 @@ What the editor needs to move from a DOS-style toy to something that feels curre
 ### 9. ~~Auto-save and crash recovery~~ (done)
 - While there are unsaved changes, the document is copied to `<file>.recover` every 30 seconds. Save or discarding changes removes it. If the editor dies, the next start asks to recover (Y restores, N deletes). Lives in `recovery.c`; the main loop wakes every second so backups run while idle.
 - Limits: backups are not made while a prompt, menu or the file browser is open. Closing the console window or logging off does not write a final backup. Untitled documents back up to `untitled.txt.recover` in the working folder.
-- Open: restore for all tabs, not just the first (see Next Up 4).
+- Restore offers every tab, not just the first (see Next Up 4).
 
 ## Usability
 
@@ -57,8 +57,7 @@ What the editor needs to move from a DOS-style toy to something that feels curre
   - Limits: no drag-select of words after a double-click, no right-button popup at the pointer (right-click opens the Edit dropdown in the menu bar). Windows console QuickEdit is turned off while the editor runs (restored on exit), so console text can't be selected by mouse.
 - ~~**Line numbers**~~ (done): Options > Line numbers shows dim numbers in a left gutter. The gutter is at least 3 digits and widens as the file grows. Lives in `ui.c` (`gutter_w`, `text_w`).
 - ~~**Multiple file support**~~ (done): tabs. Each open file is a tab on row 1. Command-line files each get a tab. New tab (Ctrl+N), Open (Ctrl+O; a file already open just gets its tab selected), Close Tab (Ctrl+W), next/previous tab (F6/F7 or click the tab). Undo, cursor, selection and line endings are per tab. Exit asks about each modified tab. Lives in `tabs.c`.
-  - Limits: 16 tabs at most; the tab bar scrolls to keep the active tab visible but shows no overflow marker; a tab label is cut to 20 characters; two tabs can end up on the same file if you Save As onto a name open in another tab. Crash-recovery restore only offers the first tab (see Next Up 4).
-- ~~**Better file operations**~~ (done): Ctrl+E / File > Recent Files lists the last 10 files opened or saved (kept in `~/.velo_recent`; missing files are dropped when picked). Save As now uses the folder browser with a name field and asks before overwriting. Open browser: R jumps to recent. Lives in `files.c` (`browse`, `do_open_recent`) and `recent.c`.
+  - Limits: 16 tabs at most; the tab bar scrolls to keep the active tab visible but shows no overflow marker; a tab label is cut to 20 characters; two tabs can end up on the same file if you Save As onto a name open in another tab.- ~~**Better file operations**~~ (done): Ctrl+E / File > Recent Files lists the last 10 files opened or saved (kept in `~/.velo_recent`; missing files are dropped when picked). Save As now uses the folder browser with a name field and asks before overwriting. Open browser: R jumps to recent. Lives in `files.c` (`browse`, `do_open_recent`) and `recent.c`.
   - Limits: the recent list is per user, not per folder; paths are compared without case on Windows; the name field takes typed characters only (no paste).
 - ~~**Syntax highlighting**~~ (done): keywords, comments, strings and numbers. Languages picked by extension: C/C++, JS/TS, PHP, Python, JSON, Markdown (headings), INI. Options > Syntax turns it off. Colors follow the Default/Blue/Light scheme. Lives in `syntax.c` (scanners), drawn from `ui.c` (`draw_row`).
   - Per-file language: Options > Language cycles Auto, Plain and each language for the open file (not saved; a Save As to a new name keeps the choice). Rescans start 1000 lines above the screen, so a block comment or string opened further up may color wrong until it closes. no highlighting for Markdown inline code/bold, or for JSON/INI beyond the basics; the language follows the file name, so it changes on Save As.
@@ -69,10 +68,10 @@ What the editor needs to move from a DOS-style toy to something that feels curre
 
 ## Nice to Have (Polish)
 
-- **Visual block selection**: rectangular selection (Alt+Shift+arrows). Plain selection is already reverse video.
+- ~~**Visual block selection**~~ (done, #7): rectangular selection (Alt+Shift+arrows). Plain selection is already reverse video.
 
 ## Current Constraints
 
 - Files are saved with LF by default. A CRLF file keeps CRLF on save. Changed via Options > Line endings.
-- The clipboard is internal only (see Next Up 5).
-- Undo history has no depth limit and the modified flag is not save-point aware (see Next Up 2).
+- On Linux, reading the system clipboard needs `wl-paste`, `xclip` or `xsel`; without one, Ctrl+V uses the internal clipboard (see Next Up 5).
+- Undo history has no depth limit.
