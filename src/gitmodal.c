@@ -197,6 +197,59 @@ static int count_conflicts(void) {
     return n;
 }
 
+/* Status of one changed file, from its porcelain XY code. */
+typedef enum {
+    FS_OTHER, FS_CONFLICT, FS_UNTRACKED, FS_NEW, FS_DELETED, FS_RENAMED, FS_MODIFIED, FS_COUNT
+} FileKind;
+
+static FileKind file_kind(const char *line) {
+    char x = line[0], y = line[1];
+    if (x == 'U' || y == 'U' || (x == 'A' && y == 'A') || (x == 'D' && y == 'D')) return FS_CONFLICT;
+    if (x == '?') return FS_UNTRACKED;
+    if (x == 'A') return FS_NEW;
+    if (x == 'D' || y == 'D') return FS_DELETED;
+    if (x == 'R' || x == 'C') return FS_RENAMED;
+    if (x == 'M' || y == 'M' || x == 'T' || y == 'T') return FS_MODIFIED;
+    return FS_OTHER;
+}
+
+static const char *kind_label(FileKind k) {
+    switch (k) {
+        case FS_CONFLICT:  return "conflict";
+        case FS_UNTRACKED: return "untracked";
+        case FS_NEW:       return "new";
+        case FS_DELETED:   return "deleted";
+        case FS_RENAMED:   return "renamed";
+        case FS_MODIFIED:  return "modified";
+        default:           return "other";
+    }
+}
+
+/* Foreground-only colors per scheme (the row background comes from the scheme).
+   Light has a white background and Blue a blue one, so their colors differ. */
+static const char *kind_sgr[3][FS_COUNT] = {
+    /* Default */
+    { "\x1b[0m", "\x1b[1;31m", "\x1b[35m", "\x1b[32m", "\x1b[31m", "\x1b[36m", "\x1b[33m" },
+    /* Blue */
+    { "\x1b[0m", "\x1b[1;91m", "\x1b[95m", "\x1b[92m", "\x1b[91m", "\x1b[96m", "\x1b[93m" },
+    /* Light */
+    { "\x1b[0m", "\x1b[1;31m", "\x1b[38;5;90m", "\x1b[38;5;28m", "\x1b[31m", "\x1b[38;5;30m", "\x1b[38;5;130m" },
+};
+
+/* Counts of each kind, written as "3 modified, 1 new". Empty when there are no changes. */
+static void summary_text(char *buf, size_t size) {
+    int c[FS_COUNT] = {0};
+    buf[0] = '\0';
+    for (int i = 0; i < nfiles; i++) c[file_kind(files[i])]++;
+    size_t n = 0;
+    for (int k = FS_CONFLICT; k < FS_COUNT; k++) {
+        if (!c[k]) continue;
+        int w = snprintf(buf + n, size - n, "%s%d %s", n ? ", " : "", c[k], kind_label(k));
+        if (w < 0 || (size_t)w >= size - n) break;
+        n += (size_t)w;
+    }
+}
+
 /* Draws one full-width row. Text is cut at a character boundary so it never
    runs into the last column. */
 static void put_row(int y, const char *sgr, const char *text) {
@@ -226,20 +279,34 @@ static void draw(void) {
 
     for (int i = 0; i < rows; i++) {
         const char *t = "";
+        const char *sgr = options_base_sgr();
+        char row_sgr[64];
         if (!in_repo) {
             if (i == 0) t = "  Open a file inside a git repository to see its status.";
         } else if (nfiles == 0) {
             if (i == 0) t = "  Working tree clean.";
         } else if (top + i < nfiles) {
-            snprintf(line, sizeof line, "  %s", files[top + i]);
+            FileKind k = file_kind(files[top + i]);
+            snprintf(line, sizeof line, "  %-10s %s", kind_label(k), files[top + i] + 3);
             t = line;
+            snprintf(row_sgr, sizeof row_sgr, "%s%s", options_base_sgr(), kind_sgr[options.scheme][k]);
+            sgr = row_sgr;
         }
-        put_row(1 + i, options_base_sgr(), t);
+        put_row(1 + i, sgr, t);
     }
 
+    char sum[160] = "";
+    if (nfiles > 0) summary_text(sum, sizeof sum);
+    int unsaved = tabs_first_modified() >= 0;
+
+    char note_buf[300];
     const char *note = "";
     if (msg[0]) note = msg;
-    else if (tabs_first_modified() >= 0) note = "Unsaved tabs are not included until you save them.";
+    else if (sum[0] && unsaved) {
+        snprintf(note_buf, sizeof note_buf, "%s. Unsaved tabs are not included.", sum);
+        note = note_buf;
+    } else if (sum[0]) note = sum;
+    else if (unsaved) note = "Unsaved tabs are not included until you save them.";
     put_row(screen_h - 2, options_base_sgr(), note);
 
     const char *foot;
