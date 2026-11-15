@@ -27,6 +27,13 @@ int utf8_byte_at_col(const char *text, int len, int col);
 /* Total display width of text[0..len). */
 int utf8_width(const char *text, int len);
 
+/* Simple lowercase fold of a code point (for case-insensitive search). */
+int cp_fold(int cp);
+
+/* Matches pat[0..plen) at the start of text, case-folded. Returns the byte
+   offset just past the match, or -1. */
+int utf8_match_fold(const char *text, int len, const char *pat, int plen);
+
 /* Soft wrap at tw columns. Each line has at least one row. */
 int utf8_wrap_rows(const char *text, int len, int tw);
 

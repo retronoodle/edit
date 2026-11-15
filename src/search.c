@@ -1,5 +1,4 @@
 /* Search: Find/Find Next (case-insensitive, wraps), Replace (Y/N/A, from cursor to end), Go to Line. */
-#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,21 +10,15 @@
 #include "undo.h"
 #include "clipboard.h"
 #include "search.h"
+#include "utf8.h"
 
 static char last_find[256] = "";   /* remembered for Find Next (F3) */
 
-static int match_at(const Line *ln, int x, const char *pat, int plen) {
-    if (x + plen > ln->len) return 0;
-    for (int i = 0; i < plen; i++) {
-        if (tolower((unsigned char)ln->text[x + i]) != tolower((unsigned char)pat[i])) return 0;
-    }
-    return 1;
-}
-
 /* Finds the first match at or after (sy, sx). If wrap is set, the search
    continues from the top of the document; otherwise it stops at the end.
-   Returns 1 and sets (*fy, *fx) on a hit. */
-static int find_from(int sy, int sx, int wrap, int *fy, int *fx) {
+   Returns 1 and sets the match span (*fy, *fx) to (*fe) on a hit. Matches start
+   on character boundaries and compare case-folded (Unicode-aware). */
+static int find_from(int sy, int sx, int wrap, int *fy, int *fx, int *fe) {
     int plen = (int)strlen(last_find);
     int lines = editor.line_count;
     if (plen == 0 || lines == 0) return 0;
@@ -35,10 +28,12 @@ static int find_from(int sy, int sx, int wrap, int *fy, int *fx) {
         int y = (sy + k) % lines;
         int x0 = (k == 0) ? sx : 0;
         const Line *ln = &editor.lines[y];
-        for (int x = x0; x + plen <= ln->len; x++) {
-            if (match_at(ln, x, last_find, plen)) {
+        for (int x = x0; x < ln->len; x = utf8_next(ln->text, ln->len, x)) {
+            int end = utf8_match_fold(ln->text + x, ln->len - x, last_find, plen);
+            if (end >= 0) {
                 *fy = y;
                 *fx = x;
+                *fe = x + end;
                 return 1;
             }
         }
@@ -47,13 +42,13 @@ static int find_from(int sy, int sx, int wrap, int *fy, int *fx) {
 }
 
 /* Selects a match: anchor at its start, cursor at its end (drawn in reverse video). */
-static void select_match(int y, int x) {
+static void select_match(int y, int x, int end) {
     editor.sel_active = 1;
     editor.sel_block = 0;
     editor.sel_y = y;
     editor.sel_x = x;
     editor.cursor_y = y;
-    editor.cursor_x = x + (int)strlen(last_find);
+    editor.cursor_x = end;
     undo_break_group();
     adjust_scroll();
 }
@@ -89,9 +84,9 @@ void search_next(void) {
     }
 
     sel_clear();
-    int fy, fx;
-    if (find_from(editor.cursor_y, editor.cursor_x, 1, &fy, &fx)) {
-        select_match(fy, fx);
+    int fy, fx, fe;
+    if (find_from(editor.cursor_y, editor.cursor_x, 1, &fy, &fx, &fe)) {
+        select_match(fy, fx, fe);
     } else {
         show_message("Not found.");
     }
@@ -104,16 +99,15 @@ void search_replace(void) {
     if (!prompt_line_opt("Replace with: ", repl, sizeof repl)) return;
     strcpy(last_find, find);
 
-    int plen = (int)strlen(find);
     int rlen = (int)strlen(repl);
     int count = 0, all = 0;
     int y = editor.cursor_y, x = editor.cursor_x;
-    int fy, fx;
+    int fy, fx, fe;
 
     /* The whole run is one undo step. */
     undo_begin_group();
-    while (find_from(y, x, 0, &fy, &fx)) {
-        select_match(fy, fx);
+    while (find_from(y, x, 0, &fy, &fx, &fe)) {
+        select_match(fy, fx, fe);
 
         int replace_it = all;
         if (!all) {
@@ -127,14 +121,14 @@ void search_replace(void) {
             sel_clear();
             editor.cursor_y = fy;
             editor.cursor_x = fx;
-            delete_range(fy, fx, fy, fx + plen);
+            delete_range(fy, fx, fy, fe);
             insert_text(repl, rlen);   /* inserts at the cursor, which is now fx */
             count++;
             y = editor.cursor_y;
             x = editor.cursor_x;       /* continue after the inserted text */
         } else {
             y = fy;
-            x = fx + plen;
+            x = fe;
         }
     }
     undo_end_group();

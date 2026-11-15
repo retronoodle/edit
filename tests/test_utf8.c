@@ -89,6 +89,56 @@ int main(void) {
     utf8_wrap_cursor(wd, 5, 2, 4, &r, &c);                    /* 'b' starts row 2 */
     CHECK(r == 2 && c == 0);
 
+    /* grapheme clusters: ZWJ family is one char, two columns */
+    const char *fam = "\xF0\x9F\x91\xA8\xE2\x80\x8D\xF0\x9F\x91\xA9\xE2\x80\x8D\xF0\x9F\x91\xA7"; /* 👨‍👩‍👧 */
+    int flen = 18;
+    CHECK(utf8_next(fam, flen, 0) == flen);
+    CHECK(utf8_width(fam, flen) == 2);
+    CHECK(utf8_prev(fam, flen, flen) == 0);
+
+    /* flag: two regional indicators are one char, two columns */
+    const char *flag = "\xF0\x9F\x87\xA6\xF0\x9F\x87\xBA";   /* 🇦🇺 */
+    CHECK(utf8_next(flag, 8, 0) == 8);
+    CHECK(utf8_width(flag, 8) == 2);
+    CHECK(utf8_prev(flag, 8, 8) == 0);
+
+    /* three regional indicators: flag, then a lone one */
+    const char *ri3 = "\xF0\x9F\x87\xA6\xF0\x9F\x87\xBA\xF0\x9F\x87\xB8";
+    CHECK(utf8_next(ri3, 12, 0) == 8);
+    CHECK(utf8_next(ri3, 12, 8) == 12);
+    CHECK(utf8_prev(ri3, 12, 12) == 8);
+
+    /* skin-tone modifier joins its base */
+    const char *thumb = "\xF0\x9F\x91\x8D\xF0\x9F\x8F\xBD";   /* 👍🏽 */
+    CHECK(utf8_next(thumb, 8, 0) == 8);
+    CHECK(utf8_width(thumb, 8) == 2);
+
+    /* ordinary text is unchanged: plain ASCII and a lone ZWJ-free emoji */
+    CHECK(utf8_next("ab", 2, 0) == 1);
+    CHECK(utf8_next("\xF0\x9F\x98\x80" "a", 5, 0) == 4);
+
+    /* case folding */
+    CHECK(cp_fold('A') == 'a' && cp_fold('z') == 'z' && cp_fold('1') == '1');
+    CHECK(cp_fold(0xC9) == 0xE9);    /* É -> é */
+    CHECK(cp_fold(0xD7) == 0xD7);    /* × is not a letter */
+    CHECK(cp_fold(0x100) == 0x101);  /* Ā -> ā */
+    CHECK(cp_fold(0x139) == 0x13A);  /* Ĺ -> ĺ */
+    CHECK(cp_fold(0x391) == 0x3B1);  /* Α -> α */
+    CHECK(cp_fold(0x410) == 0x430);  /* А -> а */
+    CHECK(cp_fold(0x400) == 0x450);  /* Ѐ -> ѐ */
+
+    /* folded matching returns the byte end, which can differ from the pattern length */
+    const char *ecs = "\xC3\x89" "cole";                         /* École */
+    CHECK(utf8_match_fold(ecs, 6, "\xC3\xA9" "cole", 6) == 6);   /* école */
+    CHECK(utf8_match_fold("Ecole", 5, "ECOLE", 5) == 5);            /* ASCII folds */
+    CHECK(utf8_match_fold("Ecole", 5, "ecole", 5) == 5);
+    CHECK(utf8_match_fold("Ecole", 5, "ecol", 4) == 4);           /* prefix match */
+    CHECK(utf8_match_fold(ecs, 6, "ecoles", 6) == -1);            /* longer than text */
+    CHECK(utf8_match_fold("\xCE\xB1\xCE\xB2", 4, "\xCE\x91", 2) == 2);   /* αβ vs Α */
+    CHECK(utf8_match_fold("a", 1, "b", 1) == -1);
+    CHECK(utf8_match_fold("a\x80", 2, "a\x81", 2) == -1);         /* invalid bytes differ */
+    CHECK(utf8_match_fold("a\x80", 2, "a\x80", 2) == 2);          /* same invalid byte matches */
+
     if (failures == 0) printf("utf8 tests passed\n");
     return failures ? 1 : 0;
 }

@@ -56,7 +56,8 @@ typedef struct { int lo, hi; } Range;
 static const Range zero_width[] = {
     {0x0300, 0x036F}, {0x0483, 0x0489}, {0x0591, 0x05BD}, {0x0610, 0x061A},
     {0x064B, 0x065F}, {0x1AB0, 0x1AFF}, {0x1DC0, 0x1DFF}, {0x200B, 0x200F},
-    {0x20D0, 0x20FF}, {0xFE00, 0xFE0F}, {0xFE20, 0xFE2F}, {0xE0100, 0xE01EF}
+    {0x20D0, 0x20FF}, {0xFE00, 0xFE0F}, {0xFE20, 0xFE2F}, {0xE0020, 0xE007F},
+    {0xE0100, 0xE01EF}
 };
 
 /* Wide: East Asian wide/fullwidth and common emoji blocks. */
@@ -64,7 +65,7 @@ static const Range wide[] = {
     {0x1100, 0x115F}, {0x2E80, 0x303E}, {0x3041, 0x33FF}, {0x3400, 0x4DBF},
     {0x4E00, 0x9FFF}, {0xA000, 0xA4CF}, {0xAC00, 0xD7A3}, {0xF900, 0xFAFF},
     {0xFE30, 0xFE4F}, {0xFF00, 0xFF60}, {0xFFE0, 0xFFE6}, {0x1F300, 0x1F64F},
-    {0x1F900, 0x1F9FF}, {0x20000, 0x3FFFD}
+    {0x1F900, 0x1F9FF}, {0x1F1E6, 0x1F1FF}, {0x20000, 0x3FFFD}
 };
 
 static int in_ranges(int cp, const Range *r, int n) {
@@ -82,15 +83,31 @@ int cp_width(int cp) {
     return 1;
 }
 
-/* Length of the character starting at i (base plus following zero-width marks). */
+static int is_regional(int cp) { return cp >= 0x1F1E6 && cp <= 0x1F1FF; }
+static int is_skin_tone(int cp) { return cp >= 0x1F3FB && cp <= 0x1F3FF; }
+static int is_tag(int cp) { return cp >= 0xE0020 && cp <= 0xE007F; }
+
+/* Length of the grapheme cluster starting at i. It takes the base code point, then:
+   a pair of regional indicators (a flag), zero-width marks, skin-tone modifiers,
+   emoji tags, and the code point after each ZWJ (so ZWJ sequences stay whole). */
 static int char_len(const char *text, int len, int i) {
     int cp;
     int n = utf8_decode(text + i, len - i, &cp);
     int j = i + n;
+
+    if (cp >= 0 && is_regional(cp) && j < len) {
+        int cp2;
+        int m = utf8_decode(text + j, len - j, &cp2);
+        if (cp2 >= 0 && is_regional(cp2)) j += m;   /* second half of the flag */
+    }
+
+    int after_zwj = 0;
     while (j < len) {
         int cp2;
         int m = utf8_decode(text + j, len - j, &cp2);
-        if (cp2 < 0 || cp_width(cp2) != 0) break;
+        if (cp2 < 0) break;
+        if (!after_zwj && cp_width(cp2) != 0 && !is_skin_tone(cp2) && !is_tag(cp2)) break;
+        after_zwj = (cp2 == 0x200D);
         j += m;
     }
     return j - i;
@@ -223,4 +240,48 @@ void utf8_wrap_cursor(const char *text, int len, int tw, int byte,
     if (row_col >= tw) row_col = tw - 1;
     *row = r;
     *col = row_col;
+}
+
+/* Simple case folding to lowercase for search. Covers ASCII, Latin-1, Latin
+   Extended-A, Greek and Cyrillic. Not full Unicode case mapping (no ß -> ss). */
+int cp_fold(int cp) {
+    if (cp < 0) return cp;
+    if (cp < 0x80) return (cp >= 'A' && cp <= 'Z') ? cp + 32 : cp;
+    if (cp >= 0xC0 && cp <= 0xDE && cp != 0xD7) return cp + 32;
+    if (cp >= 0x100 && cp <= 0x17F) {
+        if (cp == 0x130) return 'i';                          /* İ */
+        if (cp == 0x178) return 0xFF;                         /* Ÿ */
+        if ((cp >= 0x100 && cp <= 0x12F) || (cp >= 0x132 && cp <= 0x137) ||
+            (cp >= 0x14A && cp <= 0x177))
+            return (cp & 1) ? cp : cp + 1;                    /* upper is even */
+        if ((cp >= 0x139 && cp <= 0x148) || (cp >= 0x179 && cp <= 0x17E))
+            return (cp & 1) ? cp + 1 : cp;                    /* upper is odd */
+        return cp;
+    }
+    if (cp >= 0x391 && cp <= 0x3A9 && cp != 0x3A2) return cp + 32;   /* Greek */
+    if (cp == 0x3C2) return 0x3C3;                                   /* final sigma */
+    if (cp >= 0x400 && cp <= 0x40F) return cp + 80;                  /* Cyrillic */
+    if (cp >= 0x410 && cp <= 0x42F) return cp + 32;
+    return cp;
+}
+
+/* Anchored at the start of text: matches pat (plen bytes) against the characters
+   at the start, comparing folded code points. Returns the byte offset just past
+   the match in text, or -1. Invalid bytes compare as raw bytes. */
+int utf8_match_fold(const char *text, int len, const char *pat, int plen) {
+    int i = 0, p = 0;
+    while (p < plen) {
+        if (i >= len) return -1;
+        int tc, pc;
+        int tn = utf8_decode(text + i, len - i, &tc);
+        int pn = utf8_decode(pat + p, plen - p, &pc);
+        if (tc < 0 || pc < 0) {
+            if (tc != pc || text[i] != pat[p]) return -1;
+        } else if (cp_fold(tc) != cp_fold(pc)) {
+            return -1;
+        }
+        i += tn;
+        p += pn;
+    }
+    return i;
 }
