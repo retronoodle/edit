@@ -394,21 +394,42 @@ int getch_impl() {
 
 /* Reads one UTF-8 character as a code point (-1 on EOF, -1 if invalid). */
 int getch_cp() {
-    int ch = posix_getc();
-    if (ch == EOF) return -1;
-    if (ch < 0x80) return ch;
-    if (ch < 0xC2 || ch > 0xF4) return -1;
-    int need = ch >= 0xF0 ? 3 : ch >= 0xE0 ? 2 : 1;
-    char buf[4];
-    buf[0] = (char)ch;
-    for (int i = 1; i <= need; i++) {
-        int c = posix_getc();
-        if (c == EOF) return -1;
-        buf[i] = (char)c;
+    for (;;) {
+        int ch = posix_getc();
+        if (ch == EOF) return -1;
+        if (ch == 27) {
+            /* ESC: a mouse report (ESC [ < ...) is swallowed like on Windows, so it
+               neither cancels the prompt nor gets typed. Anything else is put back
+               and returned as Esc. */
+            int a = posix_getc();
+            if (a == '[') {
+                int b = posix_getc();
+                if (b == '<') {
+                    int c;
+                    do {
+                        c = posix_getc();
+                    } while (c != EOF && c != 'M' && c != 'm');
+                    continue;
+                }
+                if (b != EOF) ungetc(b, stdin);
+            }
+            if (a != EOF) ungetc(a, stdin);
+            return 27;
+        }
+        if (ch < 0x80) return ch;
+        if (ch < 0xC2 || ch > 0xF4) return -1;
+        int need = ch >= 0xF0 ? 3 : ch >= 0xE0 ? 2 : 1;
+        char buf[4];
+        buf[0] = (char)ch;
+        for (int i = 1; i <= need; i++) {
+            int c = posix_getc();
+            if (c == EOF) return -1;
+            buf[i] = (char)c;
+        }
+        int cp;
+        if (utf8_decode(buf, need + 1, &cp) != need + 1) return -1;
+        return cp;
     }
-    int cp;
-    if (utf8_decode(buf, need + 1, &cp) != need + 1) return -1;
-    return cp;
 }
 #endif
 
