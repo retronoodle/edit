@@ -78,6 +78,7 @@ int main(int argc, char *argv[]) {
     init_editor();
     tabs_init();
     recent_load();
+    options_load();   /* before opening files: a file's own line endings still win */
 
     /* Each file named on the command line opens in its own tab. The first
        one replaces the empty starting tab; the first tab is shown at start. */

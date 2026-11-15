@@ -1,4 +1,4 @@
-/* User options set from the Options menu. Not saved to disk yet. */
+/* User options set from the Options menu. Saved to ~/.velo_config (line endings excepted: per file). */
 #ifndef OPTIONS_H
 #define OPTIONS_H
 
@@ -15,6 +15,15 @@ extern Options options;
 
 /* Advances the option for an ACT_TAB_WIDTH / ACT_LINE_ENDS / ACT_COLOR_SCHEME / ACT_LINE_NUMBERS / ACT_SYNTAX / ACT_WRAP action. */
 void options_cycle(int action);
+
+/* Reads ~/.velo_config. Missing or unreadable keeps the defaults. */
+void options_load(void);
+
+/* Writes the saved options to ~/.velo_config. Failure is silent. */
+void options_save(void);
+
+/* Applies one "key=value" line (comments, blank lines and bad values are ignored). Returns 1 if it was applied. */
+int options_parse_line(const char *line);
 
 /* Writes the item text for an Options menu action, e.g. "Tab width: 4". */
 void options_label(int action, char *buf, int size);

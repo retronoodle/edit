@@ -2,7 +2,12 @@
 #ifndef RECENT_H
 #define RECENT_H
 
+#include <stddef.h>
+
 #define MAX_RECENT 10
+
+/* Builds "<home>/<name>" (home from USERPROFILE, else HOME). Returns 0 if there is no home. */
+int home_file_path(const char *name, char *buf, size_t size);
 
 /* Reads the list from the per-user file. Missing or unreadable is fine (empty list). */
 void recent_load(void);

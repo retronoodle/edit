@@ -22,7 +22,7 @@ Sources live in `src/` (paths below are relative to it). Unit tests live in `tes
 - `term.c/.h`: frame buffer (`fb_*`, `fb_flush`), console/raw mode, `KEY_*` codes, `read_key()`
 - `buffer.c/.h`: `Editor editor` definition, line storage, editing ops (`insert_char`, `backspace`, ...), `move_cursor`/`adjust_scroll`, `init_editor`
 - `menu.c/.h`: menu tables (`menus[]`, items with label/hint/mnemonic/action), menu-mode keys (`menu_open_key`, `menu_handle_key`), and the `ACT_*` action codes
-- `options.c/.h`: `options` (tab width, line endings, color scheme), `options_cycle`, `options_label`, `options_base_sgr` (the scheme's SGR; use it instead of a plain `\x1b[0m`), `options_chrome_sgr(ChromeKind)` (bars, tabs, status line, borders, per scheme)
+- `options.c/.h`: `options` (tab width, line endings, color scheme, line numbers, syntax, word wrap), `options_cycle` (saves after each change), `options_load`/`options_save` (`~/.velo_config`, `key=value` lines; line endings are not saved, they are per file), `options_parse_line` (unit tests in `tests/test_options.c`), `options_label`, `options_base_sgr` (the scheme's SGR; use it instead of a plain `\x1b[0m`), `options_chrome_sgr(ChromeKind)` (bars, tabs, status line, borders, per scheme)
 - `gitinfo.c/.h`: cwd (home shortened to `~`) and git branch for the status line, read from `.git` files (no git process); cached, refreshed every 2 s
 - `gitmodal.c/.h`: Alt+G git panel: status of the cwd's repo, commit (stages all), push, B branch list (switch / + new branch), M merge a branch, A abort merge. Runs git as a child process (`popen`), unlike gitinfo
 - `ui.c/.h`: status line, menu bar, dropdown, editor area, `refresh_screen`, `show_message`, `prompt_line`, `show_help`
@@ -94,7 +94,7 @@ The main loop in `main()` (velo.c) reads a key. Menu activation and menu-mode ke
 - Clipboard is internal only (no system clipboard yet)
 - Tab key inserts `options.tab_width` spaces (2, 4 or 8; default 4)
 - Files are saved with LF by default. Opening a file with CRLF switches saving to CRLF; the Options menu can change it. Files are written and read in binary mode, so the line ending is controlled by `options.crlf`
-- Options are not saved between runs yet
+- Options are saved to `~/.velo_config` (`USERPROFILE` or `HOME`) on every change and loaded at startup, before files open. Missing or bad lines fall back to the defaults
 - The main loop uses `read_key_wait(ms)` (1 s timeout) so backups run while idle. Only the main loop should use it; prompts and browsers use `read_key()`, which blocks
 - `files.c:load_stream()` reads a stream into the buffer. Recovery uses it, so keep it free of filename or modified-flag changes
 - Per-document state (lines, cursor, filename, modified, selection, undo history, CRLF) must move with its tab. Add new per-document fields to `Editor` or `undo.c`'s `UndoState`, and check `tabs.c` (`stash_active`/`load_active`) still carries them. Global state stays global (clipboard, search text, options)

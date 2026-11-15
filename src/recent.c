@@ -23,7 +23,7 @@ static int same_path(const char *a, const char *b) {
 
 /* Builds the path of the list file in the user's home folder.
    `name` is the file name inside that folder. */
-static int home_file_path(const char *name, char *buf, size_t size) {
+int home_file_path(const char *name, char *buf, size_t size) {
     const char *home = getenv("USERPROFILE");
     if (!home) home = getenv("HOME");
     if (!home) return 0;

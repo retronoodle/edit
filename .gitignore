@@ -5,3 +5,5 @@ test_utf8
 test_utf8.exe
 test_syntax
 test_syntax.exe
+test_options
+test_options.exe

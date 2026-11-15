@@ -7,6 +7,7 @@ SOURCES=$(SRC)/velo.c $(SRC)/term.c $(SRC)/buffer.c $(SRC)/ui.c $(SRC)/files.c $
 HEADERS=$(SRC)/editor.h $(SRC)/term.h $(SRC)/buffer.h $(SRC)/ui.h $(SRC)/files.h $(SRC)/undo.h $(SRC)/clipboard.h $(SRC)/search.h $(SRC)/utf8.h $(SRC)/menu.h $(SRC)/options.h $(SRC)/recovery.h $(SRC)/mouse.h $(SRC)/tabs.h $(SRC)/recent.h $(SRC)/syntax.h $(SRC)/gitinfo.h $(SRC)/gitmodal.h
 TEST=test_utf8
 TEST_SYNTAX=test_syntax
+TEST_OPTIONS=test_options
 
 $(TARGET): $(SOURCES) $(HEADERS)
 	$(CC) $(CFLAGS) -I$(SRC) -o $(TARGET) $(SOURCES)
@@ -17,9 +18,13 @@ $(TEST): $(TESTDIR)/test_utf8.c $(SRC)/utf8.c $(SRC)/utf8.h
 $(TEST_SYNTAX): $(TESTDIR)/test_syntax.c $(SRC)/syntax.c $(SRC)/syntax.h
 	$(CC) $(CFLAGS) -I$(SRC) -o $(TEST_SYNTAX) $(TESTDIR)/test_syntax.c $(SRC)/syntax.c
 
-test: $(TEST) $(TEST_SYNTAX)
+$(TEST_OPTIONS): $(TESTDIR)/test_options.c $(SRC)/options.c $(SRC)/options.h $(SRC)/recent.c $(SRC)/recent.h
+	$(CC) $(CFLAGS) -I$(SRC) -o $(TEST_OPTIONS) $(TESTDIR)/test_options.c $(SRC)/options.c $(SRC)/recent.c
+
+test: $(TEST) $(TEST_SYNTAX) $(TEST_OPTIONS)
 	./$(TEST)
 	./$(TEST_SYNTAX)
+	./$(TEST_OPTIONS)
 
 ifeq ($(OS),Windows_NT)
 EXE=.exe
@@ -30,6 +35,6 @@ RM=rm -f
 endif
 
 clean:
-	$(RM) $(TARGET)$(EXE) $(TEST)$(EXE) $(TEST_SYNTAX)$(EXE)
+	$(RM) $(TARGET)$(EXE) $(TEST)$(EXE) $(TEST_SYNTAX)$(EXE) $(TEST_OPTIONS)$(EXE)
 
 .PHONY: clean test

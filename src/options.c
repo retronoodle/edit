@@ -1,8 +1,13 @@
-/* User options: tab width, line endings and color scheme. */
+/* User options: tab width, line endings, color scheme and the saved config file. */
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "menu.h"
 #include "options.h"
+#include "recent.h"   /* home_file_path */
+
+#define CONFIG_NAME ".velo_config"
 
 Options options = {4, 0, 0, 0, 1, 0};
 
@@ -36,6 +41,93 @@ void options_cycle(int action) {
             options.wrap = !options.wrap;
             break;
     }
+    options_save();
+}
+
+/* Parses a whole number. Returns 1 and sets *out only if the text is all digits. */
+static int parse_number(const char *s, int *out) {
+    char *end;
+    long n = strtol(s, &end, 10);
+    if (end == s || *end != '\0') return 0;
+    *out = (int)n;
+    return 1;
+}
+
+/* Sets one option from a key and its value. Returns 1 if the key is known and the value is valid. */
+static int apply_option(const char *key, const char *val) {
+    int n;
+    if (!parse_number(val, &n)) return 0;
+    if (strcmp(key, "tab_width") == 0) {
+        if (n != 2 && n != 4 && n != 8) return 0;
+        options.tab_width = n;
+    } else if (strcmp(key, "scheme") == 0) {
+        if (n < 0 || n > 2) return 0;
+        options.scheme = n;
+    } else if (strcmp(key, "line_numbers") == 0) {
+        if (n != 0 && n != 1) return 0;
+        options.line_numbers = n;
+    } else if (strcmp(key, "syntax") == 0) {
+        if (n != 0 && n != 1) return 0;
+        options.syntax = n;
+    } else if (strcmp(key, "wrap") == 0) {
+        if (n != 0 && n != 1) return 0;
+        options.wrap = n;
+    } else {
+        return 0;
+    }
+    return 1;
+}
+
+static int is_blank(char c) {
+    return c == ' ' || c == '\t' || c == '\r' || c == '\n';
+}
+
+int options_parse_line(const char *line) {
+    while (is_blank(*line)) line++;
+    if (*line == '\0' || *line == '#') return 0;
+
+    const char *eq = strchr(line, '=');
+    if (!eq) return 0;
+
+    char key[32], val[32];
+    size_t kl = (size_t)(eq - line);
+    if (kl >= sizeof(key)) return 0;
+    memcpy(key, line, kl);
+    key[kl] = '\0';
+    while (kl > 0 && is_blank(key[kl - 1])) key[--kl] = '\0';
+
+    const char *v = eq + 1;
+    while (is_blank(*v)) v++;
+    snprintf(val, sizeof(val), "%s", v);
+    size_t vl = strlen(val);
+    while (vl > 0 && is_blank(val[vl - 1])) val[--vl] = '\0';
+
+    return apply_option(key, val);
+}
+
+void options_load(void) {
+    char path[512];
+    if (!home_file_path(CONFIG_NAME, path, sizeof(path))) return;
+    FILE *f = fopen(path, "rb");
+    if (!f) return;
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+        options_parse_line(line);
+    }
+    fclose(f);
+}
+
+void options_save(void) {
+    char path[512];
+    if (!home_file_path(CONFIG_NAME, path, sizeof(path))) return;
+    FILE *f = fopen(path, "wb");
+    if (!f) return;
+    fprintf(f, "tab_width=%d\n", options.tab_width);
+    fprintf(f, "scheme=%d\n", options.scheme);
+    fprintf(f, "line_numbers=%d\n", options.line_numbers);
+    fprintf(f, "syntax=%d\n", options.syntax);
+    fprintf(f, "wrap=%d\n", options.wrap);
+    fclose(f);
 }
 
 void options_label(int action, char *buf, int size) {
