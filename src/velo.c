@@ -11,6 +11,7 @@
 #include "options.h"
 #include "aisetup.h"
 #include "aiedit.h"
+#include "aiexplain.h"
 #include "files.h"
 #include "undo.h"
 #include "clipboard.h"
@@ -76,6 +77,7 @@ static int run_action(int action) {
             break;
         case ACT_AI_SETUP:   ai_setup(); break;
         case ACT_AI_ASK:     ai_ask_selection(); break;
+        case ACT_AI_EXPLAIN: ai_explain_selection(); break;
     }
     return 0;
 }

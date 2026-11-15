@@ -118,8 +118,8 @@ Each feature is only a system prompt plus glue code.
 
 ### Phase 7: Explain selection
 
-- [ ] 7.1 Add `ACT_AI_EXPLAIN` and an Edit menu item
-- [ ] 7.2 Add a read-only scrollable modal for long replies (reuse the `show_help` pattern)
+- [x] 7.1 Add `ACT_AI_EXPLAIN` and an Edit menu item
+- [x] 7.2 Add a read-only scrollable modal for long replies (reuse the `show_help` pattern)
 
 ### Phase 8: Commit message draft
 
