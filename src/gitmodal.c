@@ -418,14 +418,34 @@ static void do_commit(void) {
 /* Pushes. Prompts are switched off so a missing login fails instead of hanging.
    ssh gets BatchMode and stdin is cut off, since ssh would otherwise ask on the
    terminal we are running in and velo would wait forever. */
+/* Appends one line to ~/.velo_push.log so a push can be followed step by step. */
+static void push_log(const char *line) {
+    const char *home = getenv("USERPROFILE");
+    if (!home) home = getenv("HOME");
+    if (!home) return;
+    char path[1024];
+    snprintf(path, sizeof path, "%s/.velo_push.log", home);
+    FILE *f = fopen(path, "a");
+    if (!f) return;
+    fprintf(f, "%s\n", line);
+    fclose(f);
+}
+
 static void do_push(void) {
 #ifdef _WIN32
     const char *cmd = "set GIT_TERMINAL_PROMPT=0&& set GIT_SSH_COMMAND=ssh -o BatchMode=yes&& git push <NUL";
 #else
     const char *cmd = "GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND='ssh -o BatchMode=yes' git push </dev/null";
 #endif
+    push_log("--- push start ---");
+    push_log(cmd);
     char *out = NULL;
-    run_cmd(cmd, &out);
+    int rc = run_cmd(cmd, &out);
+    char rcline[64];
+    snprintf(rcline, sizeof rcline, "exit status: %d", rc);
+    push_log(rcline);
+    push_log(out && *out ? out : "(no output)");
+    push_log("--- push end ---");
     msg_from_output(out ? out : "", 1);
     free(out);
     load_status();
