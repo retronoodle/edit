@@ -260,11 +260,22 @@ void backspace() {
 void insert_newline() {
     int y = editor.cursor_y, x = editor.cursor_x;
 
+    /* Leading spaces/tabs of this line, never past the cursor */
+    int indent = 0;
+    const char *t = editor.lines[y].text;
+    while (indent < x && (t[indent] == ' ' || t[indent] == '\t')) indent++;
+
     raw_split(y, x);
     undo_record_split(y, x, x, y);
 
     editor.cursor_y++;
     editor.cursor_x = 0;
+    if (indent > 0) {
+        /* The split kept text[0..indent) on line y, so it still holds the indent */
+        raw_insert_text(y + 1, 0, editor.lines[y].text, indent);
+        undo_record_insert(y + 1, 0, editor.lines[y].text, indent, 0, y + 1);
+        editor.cursor_x = indent;
+    }
     editor.modified = 1;
 }
 

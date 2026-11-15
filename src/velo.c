@@ -187,8 +187,9 @@ int main(int argc, char *argv[]) {
 
             case KEY_ENTER: {
                 int replaced = sel_begin_replace();
+                if (!replaced) undo_begin_group();   /* split + indent undo as one step */
                 insert_newline();
-                if (replaced) undo_end_group();
+                undo_end_group();
                 break;
             }
             case KEY_BACKSPACE:

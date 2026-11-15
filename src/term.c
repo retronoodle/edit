@@ -335,8 +335,17 @@ void set_line_wrap(int enable) {
     }
 }
 
-int kbhit() {
+/* The termios read times out (VTIME) when idle and returns 0 bytes. glibc
+   then latches stdin's EOF flag, so every later getchar() fails without
+   reading the keyboard. Clear the flag on each timeout so input resumes. */
+static int posix_getc(void) {
     int ch = getchar();
+    if (ch == EOF) clearerr(stdin);
+    return ch;
+}
+
+int kbhit() {
+    int ch = posix_getc();
     if (ch != EOF) {
         ungetc(ch, stdin);
         return 1;
@@ -345,13 +354,13 @@ int kbhit() {
 }
 
 int getch_impl() {
-    int ch = getchar();
+    int ch = posix_getc();
     return ch;
 }
 
 /* Reads one UTF-8 character as a code point (-1 on EOF, -1 if invalid). */
 int getch_cp() {
-    int ch = getchar();
+    int ch = posix_getc();
     if (ch == EOF) return -1;
     if (ch < 0x80) return ch;
     if (ch < 0xC2 || ch > 0xF4) return -1;
@@ -359,7 +368,7 @@ int getch_cp() {
     char buf[4];
     buf[0] = (char)ch;
     for (int i = 1; i <= need; i++) {
-        int c = getchar();
+        int c = posix_getc();
         if (c == EOF) return -1;
         buf[i] = (char)c;
     }

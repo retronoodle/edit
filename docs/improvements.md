@@ -59,7 +59,6 @@ What the editor needs to move from a DOS-style toy to something that feels curre
 ## Nice to Have (Polish)
 
 - **Config file**: save preferences (tab size, colors, keybindings). Tabs are hard-coded to 4 spaces today.
-- **Auto-indent**: match the indentation of the previous line.
 - **Selection highlighting**: visual block selection.
 - **Word wrap mode**: optional soft wrapping.
 

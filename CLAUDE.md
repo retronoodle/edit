@@ -16,6 +16,8 @@ This is a simple text editor, **velo**, written in C. It runs in the terminal wi
 
 ### Module Layout
 
+Sources live in `src/` (paths below are relative to it). Unit tests live in `tests/`.
+
 - `editor.h`: shared types (`Line`, `Editor`), screen size, and the global `extern Editor editor`
 - `term.c/.h`: frame buffer (`fb_*`, `fb_flush`), console/raw mode, `KEY_*` codes, `read_key()`
 - `buffer.c/.h`: `Editor editor` definition, line storage, editing ops (`insert_char`, `backspace`, ...), `move_cursor`/`adjust_scroll`, `init_editor`
@@ -27,11 +29,11 @@ This is a simple text editor, **velo**, written in C. It runs in the terminal wi
 - `tabs.c/.h`: open documents as tabs. The active document is the global `editor` (plus undo.c's active history); other tabs hold their own copy in a slot. `tab_switch()` moves data between them. Tab bar drawing and hit-testing live here too (`tab_bar_range`, `tab_bar_hit`)
 - `files.c/.h`: save/save-as/new tab/open (`open_path`)/close tab/exit (asks about each modified tab), the folder browser (`browse`, shared by Open and Save As) and the recent files list (`do_open_recent`)
 - `recent.c/.h`: last 10 files opened or saved (full paths), kept in `~/.velo_recent` (falls back to the old `~/.edit_recent` on first run) (`USERPROFILE` or `HOME`)
-- `syntax.c/.h`: keyword/comment/string coloring. One scanner per language (chosen by file extension), each line scanned with the parser state carried from the line above. `draw_editor_area()` (ui.c) rescans from the top of the file each redraw to get that state. Options > Syntax turns it off. Unit tests in `test_syntax.c` (`make test`)
+- `syntax.c/.h`: keyword/comment/string coloring. One scanner per language (chosen by file extension), each line scanned with the parser state carried from the line above. `draw_editor_area()` (ui.c) rescans from the top of the file each redraw to get that state. Options > Syntax turns it off. Unit tests in `tests/test_syntax.c` (`make test`)
 - `clipboard.c/.h`: selection (Shift+arrows, Ctrl+A select all), internal clipboard, cut/copy/paste (Ctrl+X/C/V)
 - `undo.c/.h`: undo/redo operation log (`undo_record_*` called from buffer.c, `undo_undo`/`undo_redo`, Ctrl+Z/Ctrl+Y)
 - `search.c/.h`: Find, Find Next, Replace, Go to Line (Ctrl+F, F3, Ctrl+R, Ctrl+G; Search menu)
-- `utf8.c/.h`: UTF-8 decode/encode, character boundaries, display width (`cp_width`, `utf8_col`, `utf8_byte_at_col`). `test_utf8.c` holds its unit tests (`make test`)
+- `utf8.c/.h`: UTF-8 decode/encode, character boundaries, display width (`cp_width`, `utf8_col`, `utf8_byte_at_col`). `tests/test_utf8.c` holds its unit tests (`make test`)
 - `recovery.c/.h`: crash recovery. `recovery_tick()` (main loop) writes `<file>.recover` for every modified tab every 30 s; `recovery_discard_name()` runs after save, on discard and on tab close; `recovery_check_on_startup()` offers to restore the active tab
 - `mouse.c/.h`: mouse clicks, drag selection, wheel scrolling and menu-bar clicks (`mouse_handle`). term.c reads the events (`KEY_MOUSE`, `term_get_mouse`); `read_key()` skips them, so only the main loop sees mouse input
 - `velo.c`: `main`, main loop, `run_action()` (runs a menu action or key command)
@@ -86,7 +88,7 @@ The main loop in `main()` (velo.c) reads a key. Menu activation and menu-mode ke
 ## Development Notes
 
 - Line storage grows on demand (`line_reserve`, `lines_reserve`, `insert_line_at`, `delete_line_at` in buffer.c); `reset_document()` clears the buffer
-- Build is `make` (compiles all `.c` files listed in the Makefile). Add new `.c` files to `SOURCES` and their headers to `HEADERS`
+- Build is `make` (compiles all `.c` files listed in the Makefile). Add new `src/*.c` files to `SOURCES` and their headers to `HEADERS` (both use `$(SRC)/`)
 - The file browser still caps listings at MAX_DIR_ENTRIES=512
 - Clipboard is internal only (no system clipboard yet)
 - Tab key inserts `options.tab_width` spaces (2, 4 or 8; default 4)
