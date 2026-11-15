@@ -9,9 +9,17 @@ typedef struct {
     int line_numbers; /* 1 = show line numbers in a left gutter, 0 = off */
     int syntax;       /* 1 = color keywords, comments and strings, 0 = plain text */
     int wrap;         /* 1 = soft-wrap long lines at the window edge, 0 = scroll sideways */
+    char ai_provider[16];  /* "anthropic" or "openai", empty = not set */
+    char ai_model[128];    /* model name sent with AI requests */
+    char ai_base_url[256]; /* base URL for the openai provider */
+    char ai_key[256];      /* stored API key (an env var takes precedence) */
 } Options;
 
 extern Options options;
+
+/* API key for the configured AI provider: the env var (ANTHROPIC_API_KEY or
+   OPENAI_API_KEY) if set, else the stored ai_key, else "". Never log it. */
+const char *options_ai_key(void);
 
 /* Advances the option for an ACT_TAB_WIDTH / ACT_LINE_ENDS / ACT_COLOR_SCHEME / ACT_LINE_NUMBERS / ACT_SYNTAX / ACT_WRAP action. */
 void options_cycle(int action);

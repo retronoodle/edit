@@ -1,7 +1,15 @@
 /* User options: tab width, line endings, color scheme and the saved config file. */
+#ifndef _WIN32
+#define _POSIX_C_SOURCE 200809L   /* fdopen, fchmod-era POSIX calls under -std=c99 */
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 
 #include "menu.h"
 #include "options.h"
@@ -10,7 +18,7 @@
 
 #define CONFIG_NAME ".velo_config"
 
-Options options = {4, 0, 0, 0, 1, 0};
+Options options = {4, 0, 0, 0, 1, 0, "", "", "", ""};
 
 static const char *scheme_names[] = {"Default", "Blue", "Light"};
 
@@ -55,9 +63,27 @@ static int parse_number(const char *s, int *out) {
     return 1;
 }
 
+/* Copies a string setting. Returns 0 (and leaves dst alone) if it does not fit. */
+static int set_text(char *dst, size_t size, const char *val) {
+    if (strlen(val) >= size) return 0;
+    strcpy(dst, val);
+    return 1;
+}
+
 /* Sets one option from a key and its value. Returns 1 if the key is known and the value is valid. */
 static int apply_option(const char *key, const char *val) {
     int n;
+    if (strcmp(key, "ai_provider") == 0) {
+        if (strcmp(val, "anthropic") != 0 && strcmp(val, "openai") != 0) return 0;
+        return set_text(options.ai_provider, sizeof(options.ai_provider), val);
+    }
+    if (strcmp(key, "ai_model") == 0)
+        return set_text(options.ai_model, sizeof(options.ai_model), val);
+    if (strcmp(key, "ai_base_url") == 0)
+        return set_text(options.ai_base_url, sizeof(options.ai_base_url), val);
+    if (strcmp(key, "ai_key") == 0)
+        return set_text(options.ai_key, sizeof(options.ai_key), val);
+
     if (!parse_number(val, &n)) return 0;
     if (strcmp(key, "tab_width") == 0) {
         if (n != 2 && n != 4 && n != 8) return 0;
@@ -92,7 +118,7 @@ int options_parse_line(const char *line) {
     const char *eq = strchr(line, '=');
     if (!eq) return 0;
 
-    char key[32], val[32];
+    char key[32], val[256];
     size_t kl = (size_t)(eq - line);
     if (kl >= sizeof(key)) return 0;
     memcpy(key, line, kl);
@@ -113,23 +139,44 @@ void options_load(void) {
     if (!home_file_path(CONFIG_NAME, path, sizeof(path))) return;
     FILE *f = fopen(path, "rb");
     if (!f) return;
-    char line[256];
+    char line[512];
     while (fgets(line, sizeof(line), f)) {
         options_parse_line(line);
     }
     fclose(f);
 }
 
+const char *options_ai_key(void) {
+    const char *env = NULL;
+    if (strcmp(options.ai_provider, "anthropic") == 0) env = getenv("ANTHROPIC_API_KEY");
+    else if (strcmp(options.ai_provider, "openai") == 0) env = getenv("OPENAI_API_KEY");
+    if (env && *env) return env;
+    return options.ai_key;
+}
+
 void options_save(void) {
     char path[512];
     if (!home_file_path(CONFIG_NAME, path, sizeof(path))) return;
-    FILE *f = fopen(path, "wb");
+    FILE *f = NULL;
+#ifndef _WIN32
+    /* The file may hold an API key: create it 0600 so no one else can read it. */
+    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
+    if (fd < 0) return;
+    f = fdopen(fd, "wb");
+    if (!f) { close(fd); return; }
+#else
+    f = fopen(path, "wb");
     if (!f) return;
+#endif
     fprintf(f, "tab_width=%d\n", options.tab_width);
     fprintf(f, "scheme=%d\n", options.scheme);
     fprintf(f, "line_numbers=%d\n", options.line_numbers);
     fprintf(f, "syntax=%d\n", options.syntax);
     fprintf(f, "wrap=%d\n", options.wrap);
+    if (options.ai_provider[0]) fprintf(f, "ai_provider=%s\n", options.ai_provider);
+    if (options.ai_model[0]) fprintf(f, "ai_model=%s\n", options.ai_model);
+    if (options.ai_base_url[0]) fprintf(f, "ai_base_url=%s\n", options.ai_base_url);
+    if (options.ai_key[0]) fprintf(f, "ai_key=%s\n", options.ai_key);
     fclose(f);
 }
 

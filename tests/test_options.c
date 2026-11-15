@@ -1,5 +1,9 @@
 /* Unit tests for the config-file line parser in options.c. Build and run with `make test`. */
+#ifndef _WIN32
+#define _POSIX_C_SOURCE 200809L   /* setenv / unsetenv under -std=c99 */
+#endif
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "options.h"
@@ -20,6 +24,10 @@ static void reset_options(void) {
     options.line_numbers = 0;
     options.syntax = 1;
     options.wrap = 0;
+    options.ai_provider[0] = '\0';
+    options.ai_model[0] = '\0';
+    options.ai_base_url[0] = '\0';
+    options.ai_key[0] = '\0';
 }
 
 static void test_valid(void) {
@@ -78,11 +86,74 @@ static void test_crlf_not_loaded(void) {
     CHECK(options.crlf == 1, "crlf left alone by config");
 }
 
+static void test_ai(void) {
+    reset_options();
+    CHECK(options_parse_line("ai_provider=anthropic") == 1, "ai_provider=anthropic applied");
+    CHECK(strcmp(options.ai_provider, "anthropic") == 0, "ai_provider value is anthropic");
+    CHECK(options_parse_line("ai_provider=openai\r\n") == 1, "ai_provider=openai applied (CRLF)");
+    CHECK(strcmp(options.ai_provider, "openai") == 0, "ai_provider value is openai");
+
+    CHECK(options_parse_line("ai_model=claude-sonnet-5-5") == 1, "ai_model applied");
+    CHECK(strcmp(options.ai_model, "claude-sonnet-5-5") == 0, "ai_model value kept");
+
+    CHECK(options_parse_line("ai_base_url=https://x.example/v1?a=b") == 1, "base url with = applied");
+    CHECK(strcmp(options.ai_base_url, "https://x.example/v1?a=b") == 0, "base url keeps ? and =");
+
+    CHECK(options_parse_line("ai_key=sk-abc123  \r\n") == 1, "ai_key applied, trailing blanks trimmed");
+    CHECK(strcmp(options.ai_key, "sk-abc123") == 0, "ai_key value trimmed");
+
+    CHECK(options_parse_line("ai_model=") == 1, "empty ai_model accepted");
+    CHECK(options.ai_model[0] == '\0', "empty ai_model clears the value");
+}
+
+static void test_ai_invalid(void) {
+    reset_options();
+    strcpy(options.ai_provider, "anthropic");
+    CHECK(options_parse_line("ai_provider=gemini") == 0, "unknown provider rejected");
+    CHECK(strcmp(options.ai_provider, "anthropic") == 0, "provider kept after bad value");
+
+    char longval[201];
+    memset(longval, 'x', 200);
+    longval[200] = '\0';
+    char line[256];
+    snprintf(line, sizeof(line), "ai_model=%s", longval);
+    CHECK(options_parse_line(line) == 0, "model longer than field rejected");
+    CHECK(options.ai_model[0] == '\0', "model unchanged after too-long value");
+}
+
+static void test_ai_key_lookup(void) {
+    reset_options();
+    strcpy(options.ai_key, "stored-key");
+
+    strcpy(options.ai_provider, "anthropic");
+    setenv("ANTHROPIC_API_KEY", "env-key", 1);
+    CHECK(strcmp(options_ai_key(), "env-key") == 0, "env var beats stored key (anthropic)");
+
+    setenv("OPENAI_API_KEY", "openai-env", 1);
+    CHECK(strcmp(options_ai_key(), "env-key") == 0, "wrong-provider env ignored (anthropic)");
+
+    strcpy(options.ai_provider, "openai");
+    CHECK(strcmp(options_ai_key(), "openai-env") == 0, "OPENAI_API_KEY used for openai");
+
+    unsetenv("OPENAI_API_KEY");
+    CHECK(strcmp(options_ai_key(), "stored-key") == 0, "stored key used when env unset");
+
+    unsetenv("ANTHROPIC_API_KEY");
+    strcpy(options.ai_provider, "anthropic");
+    CHECK(strcmp(options_ai_key(), "stored-key") == 0, "stored key used when anthropic env unset");
+
+    options.ai_key[0] = '\0';
+    CHECK(options_ai_key()[0] == '\0', "no key at all gives empty string");
+}
+
 int main(void) {
     test_valid();
     test_invalid_values();
     test_ignored_lines();
     test_crlf_not_loaded();
+    test_ai();
+    test_ai_invalid();
+    test_ai_key_lookup();
 
     printf("%d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
