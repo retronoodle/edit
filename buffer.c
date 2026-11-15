@@ -8,6 +8,7 @@
 #include "undo.h"
 #include "ui.h"
 #include "utf8.h"
+#include "options.h"
 
 Editor editor;
 
@@ -228,7 +229,17 @@ void backspace() {
 
     if (x > 0) {
         Line *ln = &editor.lines[y];
-        int nx = utf8_prev(ln->text, ln->len, x);
+        int nx;
+        int all_spaces = 1;
+        for (int i = 0; i < x; i++) {
+            if (ln->text[i] != ' ') { all_spaces = 0; break; }
+        }
+        if (all_spaces) {
+            /* Cursor inside leading spaces: delete back to the previous tab stop */
+            nx = ((x - 1) / options.tab_width) * options.tab_width;
+        } else {
+            nx = utf8_prev(ln->text, ln->len, x);
+        }
         int n = x - nx;
         undo_record_delete(y, nx, ln->text + nx, n, x, y);
         raw_delete_text(y, nx, n);
