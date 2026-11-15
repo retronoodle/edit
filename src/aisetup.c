@@ -36,7 +36,7 @@ void ai_setup(void) {
     char model[sizeof(options.ai_model)];
     char base_url[sizeof(options.ai_base_url)];
     char key[sizeof(options.ai_key)];
-    char buf[300];
+    char buf[600];
 
     strcpy(provider, options.ai_provider);
     strcpy(model, options.ai_model);

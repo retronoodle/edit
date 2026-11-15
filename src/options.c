@@ -139,7 +139,7 @@ void options_load(void) {
     if (!home_file_path(CONFIG_NAME, path, sizeof(path))) return;
     FILE *f = fopen(path, "rb");
     if (!f) return;
-    char line[512];
+    char line[1024];
     while (fgets(line, sizeof(line), f)) {
         options_parse_line(line);
     }

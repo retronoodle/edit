@@ -119,7 +119,7 @@ static int confirm_discard(void) {
     if (!editor.modified) return 1;
 
     gotoxy(0, screen_h - 2);
-    printf("%-*s", screen_w - 1, "Save changes? (Y)es / (N)o / Esc = cancel");
+    printf("\x1b[7m%-*s%s", screen_w - 1, "Save changes? (Y)es / (N)o / Esc = cancel", options_base_sgr());
     fflush(stdout);
 
     while (1) {

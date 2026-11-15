@@ -12,7 +12,7 @@ typedef struct {
     char ai_provider[16];  /* "anthropic" or "openai", empty = not set */
     char ai_model[128];    /* model name sent with AI requests */
     char ai_base_url[256]; /* base URL for the openai provider */
-    char ai_key[256];      /* stored API key (an env var takes precedence) */
+    char ai_key[512];      /* stored API key (an env var takes precedence) */
 } Options;
 
 extern Options options;
