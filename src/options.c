@@ -4,7 +4,7 @@
 #include "menu.h"
 #include "options.h"
 
-Options options = {4, 0, 0, 0, 1};
+Options options = {4, 0, 0, 0, 1, 0};
 
 static const char *scheme_names[] = {"Default", "Blue", "Light"};
 
@@ -32,6 +32,9 @@ void options_cycle(int action) {
         case ACT_SYNTAX:
             options.syntax = !options.syntax;
             break;
+        case ACT_WRAP:
+            options.wrap = !options.wrap;
+            break;
     }
 }
 
@@ -51,6 +54,9 @@ void options_label(int action, char *buf, int size) {
             break;
         case ACT_SYNTAX:
             snprintf(buf, size, "Syntax: %s", options.syntax ? "On" : "Off");
+            break;
+        case ACT_WRAP:
+            snprintf(buf, size, "Word wrap: %s", options.wrap ? "On" : "Off");
             break;
         default:
             if (size > 0) buf[0] = '\0';

@@ -27,4 +27,16 @@ int utf8_byte_at_col(const char *text, int len, int col);
 /* Total display width of text[0..len). */
 int utf8_width(const char *text, int len);
 
+/* Soft wrap at tw columns. Each line has at least one row. */
+int utf8_wrap_rows(const char *text, int len, int tw);
+
+/* Byte range [start, end) of wrap row `row`, and the display column where it starts.
+   Rows past the last one give start = end = len. */
+void utf8_wrap_row(const char *text, int len, int tw, int row,
+                   int *start, int *end, int *start_col);
+
+/* Wrap row and display column within that row (clamped to tw-1) of byte offset `byte`. */
+void utf8_wrap_cursor(const char *text, int len, int tw, int byte,
+                      int *row, int *col);
+
 #endif

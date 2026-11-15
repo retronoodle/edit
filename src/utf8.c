@@ -144,3 +144,83 @@ int utf8_byte_at_col(const char *text, int len, int col) {
 int utf8_width(const char *text, int len) {
     return utf8_col(text, len, len);
 }
+
+/* Soft wrap: a row holds characters whose widths sum to at most tw. A character
+   that does not fit starts the next row (a wide one is never split). Every line
+   has at least one row, even when empty. */
+int utf8_wrap_rows(const char *text, int len, int tw) {
+    if (tw < 1) tw = 1;
+    int rows = 1, row_col = 0, pos = 0;
+    while (pos < len) {
+        int cp;
+        utf8_decode(text + pos, len - pos, &cp);
+        int w = cp_width(cp);
+        if (row_col > 0 && row_col + w > tw) {
+            rows++;
+            row_col = 0;
+        }
+        row_col += w;
+        pos = utf8_next(text, len, pos);
+    }
+    return rows;
+}
+
+void utf8_wrap_row(const char *text, int len, int tw, int row,
+                   int *start, int *end, int *start_col) {
+    if (tw < 1) tw = 1;
+    int r = 0, row_col = 0, abs_col = 0, pos = 0;
+    *start = row == 0 ? 0 : len;
+    *start_col = 0;
+    *end = len;
+    while (pos < len) {
+        int cp;
+        utf8_decode(text + pos, len - pos, &cp);
+        int w = cp_width(cp);
+        if (row_col > 0 && row_col + w > tw) {
+            r++;
+            row_col = 0;
+            if (r == row) {
+                *start = pos;
+                *start_col = abs_col;
+            }
+            if (r == row + 1) {
+                *end = pos;
+                return;
+            }
+        }
+        row_col += w;
+        abs_col += w;
+        pos = utf8_next(text, len, pos);
+    }
+}
+
+void utf8_wrap_cursor(const char *text, int len, int tw, int byte,
+                      int *row, int *col) {
+    if (tw < 1) tw = 1;
+    int r = 0, row_col = 0, pos = 0;
+    while (pos < len && pos < byte) {
+        int cp;
+        utf8_decode(text + pos, len - pos, &cp);
+        int w = cp_width(cp);
+        if (row_col > 0 && row_col + w > tw) {
+            r++;
+            row_col = 0;
+        }
+        row_col += w;
+        pos = utf8_next(text, len, pos);
+    }
+    /* The cursor sits before the character at byte, which may itself wrap */
+    if (pos < len) {
+        int cp;
+        utf8_decode(text + pos, len - pos, &cp);
+        int w = cp_width(cp);
+        if (row_col > 0 && row_col + w > tw) {
+            r++;
+            row_col = 0;
+        }
+    }
+    /* At the very end of a full row, keep the cursor on that row's last cell */
+    if (row_col >= tw) row_col = tw - 1;
+    *row = r;
+    *col = row_col;
+}

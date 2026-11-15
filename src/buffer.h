@@ -12,6 +12,8 @@ void reset_document(void);
 void init_editor(void);
 void adjust_scroll(void);
 void move_cursor(int dx, int dy);
+int line_rows(int y);                          /* screen rows line y takes (1 unless word wrap is on) */
+void cursor_set_wrapped(int y, int row, int col);   /* cursor to a wrap row and column within it */
 void insert_utf8(const char *s, int n);   /* one whole character, n bytes */
 void delete_char(void);
 void backspace(void);

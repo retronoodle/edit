@@ -9,6 +9,7 @@
 #include "ui.h"
 #include "utf8.h"
 #include "tabs.h"
+#include "options.h"
 #include "mouse.h"
 
 /* True while a left-button drag that started in the text area is in progress. */
@@ -23,12 +24,29 @@ static int text_bottom(void) {
 /* Puts the cursor at the character under cell (x, y). Rows outside the text area
    map to the lines just above or below the view, so dragging past an edge scrolls. */
 static void cursor_to_cell(int x, int y) {
+    int tx = x - gutter_w();   /* clicks in the gutter land on column 0 */
+    if (tx < 0) tx = 0;
+
+    if (options.wrap) {
+        /* Walk down from the top line, counting screen rows, to find the row under y */
+        int target = y - TEXT_TOP;
+        if (target < 0) target = 0;
+        int line = editor.scroll_y, used = 0;
+        while (line < editor.line_count - 1 && target >= used + line_rows(line)) {
+            used += line_rows(line);
+            line++;
+        }
+        if (line > editor.line_count - 1) line = editor.line_count - 1;
+        int row = target - used;
+        int rows = line_rows(line);
+        if (row >= rows) row = rows - 1;
+        cursor_set_wrapped(line, row, tx);
+        return;
+    }
+
     int line = editor.scroll_y + (y - TEXT_TOP);
     if (line < 0) line = 0;
     if (line > editor.line_count - 1) line = editor.line_count - 1;
-
-    int tx = x - gutter_w();   /* clicks in the gutter land on column 0 */
-    if (tx < 0) tx = 0;
 
     Line *ln = &editor.lines[line];
     editor.cursor_y = line;

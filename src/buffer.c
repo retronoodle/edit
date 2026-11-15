@@ -103,12 +103,53 @@ void init_editor() {
     reset_document();
 }
 
-/* scroll_x is in display columns; cursor_x is a byte offset. */
+int line_rows(int y) {
+    if (!options.wrap) return 1;
+    const Line *ln = &editor.lines[y];
+    return utf8_wrap_rows(ln->text, ln->len, text_w());
+}
+
+/* Puts the cursor on wrap row `row` of line y at display column `col` within that row.
+   The column is clamped to the row, so the cursor never lands on a neighbouring row. */
+void cursor_set_wrapped(int y, int row, int col) {
+    Line *ln = &editor.lines[y];
+    int start, end, c0;
+    utf8_wrap_row(ln->text, ln->len, text_w(), row, &start, &end, &c0);
+    int x = utf8_byte_at_col(ln->text, ln->len, c0 + col);
+    if (x < start) x = start;
+    if (end < ln->len && x >= end) x = utf8_prev(ln->text, ln->len, end);
+    editor.cursor_y = y;
+    editor.cursor_x = x;
+}
+
+/* scroll_x is in display columns; cursor_x is a byte offset. With wrap on,
+   long lines are folded instead, so scroll_x stays 0 and scroll_y counts
+   file lines whose wrapped rows must fit on screen. */
 void adjust_scroll() {
     Line *cur = &editor.lines[editor.cursor_y];
+    int tw = text_w();
+
+    if (options.wrap) {
+        editor.scroll_x = 0;
+        int crow, ccol;
+        utf8_wrap_cursor(cur->text, cur->len, tw, editor.cursor_x, &crow, &ccol);
+
+        if (editor.cursor_y < editor.scroll_y) {
+            editor.scroll_y = editor.cursor_y;
+        } else {
+            /* Rows from the top line through the cursor's row must fit in the text area */
+            int used = 0;
+            for (int f = editor.scroll_y; f < editor.cursor_y; f++) used += line_rows(f);
+            while (editor.scroll_y < editor.cursor_y && used + crow + 1 > TEXT_ROWS) {
+                used -= line_rows(editor.scroll_y);
+                editor.scroll_y++;
+            }
+        }
+        return;
+    }
+
     int cx = utf8_col(cur->text, cur->len, editor.cursor_x);
 
-    int tw = text_w();
     if (cx < editor.scroll_x) {
         editor.scroll_x = cx;
     } else if (cx >= editor.scroll_x + tw) {
@@ -125,7 +166,27 @@ void adjust_scroll() {
 void move_cursor(int dx, int dy) {
     undo_break_group();   /* moving the cursor ends the current typing step */
 
-    if (dy != 0) {
+    if (dy != 0 && options.wrap) {
+        /* Up/down step one screen row, keeping the column within the row */
+        Line *cur = &editor.lines[editor.cursor_y];
+        int crow, ccol;
+        utf8_wrap_cursor(cur->text, cur->len, text_w(), editor.cursor_x, &crow, &ccol);
+
+        if (dy > 0) {
+            if (crow + 1 < line_rows(editor.cursor_y)) {
+                cursor_set_wrapped(editor.cursor_y, crow + 1, ccol);
+            } else if (editor.cursor_y + 1 < editor.line_count) {
+                cursor_set_wrapped(editor.cursor_y + 1, 0, ccol);
+            }
+        } else {
+            if (crow > 0) {
+                cursor_set_wrapped(editor.cursor_y, crow - 1, ccol);
+            } else if (editor.cursor_y > 0) {
+                int prev = editor.cursor_y - 1;
+                cursor_set_wrapped(prev, line_rows(prev) - 1, ccol);
+            }
+        }
+    } else if (dy != 0) {
         /* Keep the same display column when moving between lines */
         Line *cur = &editor.lines[editor.cursor_y];
         int col = utf8_col(cur->text, cur->len, editor.cursor_x);

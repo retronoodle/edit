@@ -16,7 +16,7 @@
 #include "menu.h"
 #include "options.h"
 #include "syntax.h"
-#include "options.h"
+#include "buffer.h"
 #include "tabs.h"
 #include "gitinfo.h"
 #include "ui.h"
@@ -243,9 +243,13 @@ static unsigned char *kind_buffer(int n) {
     return kind_buf;
 }
 
-/* Draws one screen row of a file line. kinds (may be NULL) gives the token kind of each byte.
-   Selection (reverse video) wins over token colors. */
-static void draw_row(int file_line, const unsigned char *kinds, int has_sel, int sy1, int sx1, int sy2, int sx2) {
+/* Draws one screen row: bytes [from, to) of file line `file_line`, starting at display
+   column col0. `scroll` is the display column at the left edge of the text area (the
+   horizontal scroll, or the start column of a wrapped row). kinds (may be NULL) gives
+   the token kind of each byte. Selection (reverse video) wins over token colors.
+   show_num = 0 leaves the gutter number blank (continuation rows of a wrapped line). */
+static void draw_row(int file_line, int show_num, int from, int to, int col0, int scroll,
+                     const unsigned char *kinds, int has_sel, int sy1, int sx1, int sy2, int sx2) {
     int hl = 0;      /* 1 while drawing reverse video */
     int cur_kind = TK_PLAIN;   /* token color currently set (when not reversed) */
     int out = 0;     /* text cells emitted so far */
@@ -254,7 +258,7 @@ static void draw_row(int file_line, const unsigned char *kinds, int has_sel, int
 
     if (gw) {
         fb_puts(options_chrome_sgr(CH_DIM));
-        if (file_line < editor.line_count) fb_printf("%*d ", gw - 2, file_line + 1);
+        if (show_num && file_line < editor.line_count) fb_printf("%*d ", gw - 2, file_line + 1);
         else fb_printf("%*s ", gw - 2, "");
         fb_puts("\xe2\x94\x82");                    /* separator bar */
         fb_puts(options_base_sgr());
@@ -262,16 +266,17 @@ static void draw_row(int file_line, const unsigned char *kinds, int has_sel, int
 
     if (file_line < editor.line_count) {
         const Line *ln = &editor.lines[file_line];
-        int pos = 0, col = 0;
-        int right = editor.scroll_x + tw;
+        int pos = from, col = col0;
+        int right = scroll + tw;
+        if (col > scroll) out = col - scroll;
 
-        while (pos < ln->len && col < right) {
+        while (pos < to && col < right) {
             int nxt = utf8_next(ln->text, ln->len, pos);
             int cp;
             utf8_decode(ln->text + pos, ln->len - pos, &cp);
             int w = cp_width(cp);
 
-            int start = col > editor.scroll_x ? col : editor.scroll_x;
+            int start = col > scroll ? col : scroll;
             int end = col + w < right ? col + w : right;
             if (end > start) {
                 int selected = 0;
@@ -287,9 +292,9 @@ static void draw_row(int file_line, const unsigned char *kinds, int has_sel, int
                     hl = selected;
                     cur_kind = kind;
                 }
-                while (out < start - editor.scroll_x) { fb_write(" ", 1); out++; }
+                while (out < start - scroll) { fb_write(" ", 1); out++; }
 
-                int fully_visible = col >= editor.scroll_x && col + w <= right;
+                int fully_visible = col >= scroll && col + w <= right;
                 if (!fully_visible) {
                     for (int k = start; k < end; k++) fb_write(" ", 1);   /* wide char cut at an edge */
                 } else if (cp < 0 || cp < 0x20 || (cp >= 0x7F && cp < 0xA0)) {
@@ -297,7 +302,7 @@ static void draw_row(int file_line, const unsigned char *kinds, int has_sel, int
                 } else {
                     fb_write(ln->text + pos, nxt - pos);   /* includes any combining marks */
                 }
-                out = end - editor.scroll_x;
+                out = end - scroll;
             }
             col += w;
             pos = nxt;
@@ -360,19 +365,42 @@ void draw_editor_area() {
         }
     }
 
-    for (int screen_row = TEXT_TOP; screen_row <= screen_h - 3; screen_row++) {
-        fb_gotoxy(0, screen_row);
-        int file_line = screen_row - TEXT_TOP + editor.scroll_y;
+    /* One file line can take several screen rows when word wrap is on. Its token
+       kinds are scanned once and reused for each of its rows. */
+    int tw = text_w();
+    int last_row = screen_h - 3;
+    int screen_row = TEXT_TOP;
+    int file_line = editor.scroll_y;
+    while (screen_row <= last_row) {
         const unsigned char *kinds = NULL;
-        if (lang != SYN_PLAIN && file_line < editor.line_count) {
+        int rows = 1;
+        if (file_line < editor.line_count) {
             const Line *ln = &editor.lines[file_line];
-            unsigned char *kb = kind_buffer(ln->len);
-            if (kb) {
-                st = syntax_scan_line(lang, st, ln->text, ln->len, kb);
-                kinds = kb;
+            if (lang != SYN_PLAIN) {
+                unsigned char *kb = kind_buffer(ln->len);
+                if (kb) {
+                    st = syntax_scan_line(lang, st, ln->text, ln->len, kb);
+                    kinds = kb;
+                }
+            }
+            if (options.wrap) rows = utf8_wrap_rows(ln->text, ln->len, tw);
+        }
+
+        for (int r = 0; r < rows && screen_row <= last_row; r++, screen_row++) {
+            fb_gotoxy(0, screen_row);
+            if (file_line >= editor.line_count) {
+                draw_row(file_line, 0, 0, 0, 0, editor.scroll_x, NULL, has_sel, sy1, sx1, sy2, sx2);
+            } else if (options.wrap) {
+                const Line *ln = &editor.lines[file_line];
+                int start, end, start_col;
+                utf8_wrap_row(ln->text, ln->len, tw, r, &start, &end, &start_col);
+                draw_row(file_line, r == 0, start, end, start_col, start_col, kinds, has_sel, sy1, sx1, sy2, sx2);
+            } else {
+                draw_row(file_line, 1, 0, editor.lines[file_line].len, 0, editor.scroll_x,
+                         kinds, has_sel, sy1, sx1, sy2, sx2);
             }
         }
-        draw_row(file_line, kinds, has_sel, sy1, sx1, sy2, sx2);
+        file_line++;
     }
 
     /* Message row: left blank here; messages are printed over it */
@@ -397,8 +425,18 @@ void refresh_screen() {
     fb_puts(options_base_sgr());
 
     Line *cur = &editor.lines[editor.cursor_y];
-    int screen_x = utf8_col(cur->text, cur->len, editor.cursor_x) - editor.scroll_x + gutter_w();
-    int screen_y = editor.cursor_y - editor.scroll_y + TEXT_TOP;
+    int screen_x, screen_y;
+    if (options.wrap) {
+        /* Rows of the lines above the cursor's line, then the cursor's row within its line */
+        int crow, ccol;
+        utf8_wrap_cursor(cur->text, cur->len, text_w(), editor.cursor_x, &crow, &ccol);
+        screen_y = TEXT_TOP + crow;
+        for (int f = editor.scroll_y; f < editor.cursor_y; f++) screen_y += line_rows(f);
+        screen_x = ccol + gutter_w();
+    } else {
+        screen_x = utf8_col(cur->text, cur->len, editor.cursor_x) - editor.scroll_x + gutter_w();
+        screen_y = editor.cursor_y - editor.scroll_y + TEXT_TOP;
+    }
     fb_gotoxy(screen_x, screen_y);
     fb_puts("\x1b[?25h");   // show cursor
 
@@ -487,7 +525,7 @@ void show_help(void) {
     printf("  N/O/S/A/E/W/T/V/X - Pick File menu item (New/Open/Save/Save As/Recent/Close Tab/Next/Previous/Exit)\n");
     printf("  F/N/R/G         - Pick Search menu item (Find/Find Next/Replace/Go to Line)\n");
     printf("  U/R/X/C/P/A     - Pick Edit menu item (Undo/Redo/Cut/Copy/Paste/Select All)\n");
-    printf("  T/L/C           - Options: tab width / line endings / colors (menu stays open)\n");
+    printf("  T/L/C/N/Y/W     - Options: tab width / line endings / colors / line numbers / syntax / word wrap (menu stays open)\n");
     printf("  Open (O)        - Browse folders (Enter=open, T=type a name, R=recent)\n");
     printf("  Save As         - Browse folders, type the file name, Enter=save\n");
     printf("  ESC             - Close menu\n\n");

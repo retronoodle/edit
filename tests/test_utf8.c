@@ -61,6 +61,34 @@ int main(void) {
     CHECK(utf8_next(bad, 3, 1) == 2);
     CHECK(utf8_width(bad, 3) == 3);
 
+    /* soft wrap at width 4: "abcdef" -> "abcd" | "ef" */
+    const char *w6 = "abcdef";
+    int st, en, sc, r, c;
+    CHECK(utf8_wrap_rows(w6, 6, 4) == 2);
+    CHECK(utf8_wrap_rows(w6, 6, 6) == 1);
+    CHECK(utf8_wrap_rows(w6, 0, 4) == 1);                     /* empty line still one row */
+    utf8_wrap_row(w6, 6, 4, 1, &st, &en, &sc);
+    CHECK(st == 4 && en == 6 && sc == 4);
+    utf8_wrap_row(w6, 6, 4, 0, &st, &en, &sc);
+    CHECK(st == 0 && en == 4 && sc == 0);
+    utf8_wrap_row(w6, 6, 4, 2, &st, &en, &sc);                /* past the last row */
+    CHECK(st == 6 && en == 6);
+    utf8_wrap_cursor(w6, 6, 4, 5, &r, &c);                    /* 'f' is on row 1, col 1 */
+    CHECK(r == 1 && c == 1);
+    utf8_wrap_cursor(w6, 6, 4, 6, &r, &c);                    /* end of text: after 'f' on row 1 */
+    CHECK(r == 1 && c == 2);
+    utf8_wrap_cursor(w6, 6, 4, 0, &r, &c);                    /* start of text */
+    CHECK(r == 0 && c == 0);
+
+    /* a wide char that does not fit moves to the next row: "a日b" at width 2 */
+    const char *wd = "a\xE6\x97\xA5" "b";                    /* a(1) 日(2) b(1) */
+    CHECK(utf8_wrap_rows(wd, 5, 2) == 3);                     /* "a" | "日" | "b" */
+    CHECK(utf8_wrap_rows(wd, 5, 3) == 2);                     /* "a日" | "b" */
+    utf8_wrap_row(wd, 5, 2, 1, &st, &en, &sc);
+    CHECK(st == 1 && en == 4 && sc == 1);
+    utf8_wrap_cursor(wd, 5, 2, 4, &r, &c);                    /* 'b' starts row 2 */
+    CHECK(r == 2 && c == 0);
+
     if (failures == 0) printf("utf8 tests passed\n");
     return failures ? 1 : 0;
 }

@@ -30,6 +30,7 @@ Sources live in `src/` (paths below are relative to it). Unit tests live in `tes
 - `files.c/.h`: save/save-as/new tab/open (`open_path`)/close tab/exit (asks about each modified tab), the folder browser (`browse`, shared by Open and Save As) and the recent files list (`do_open_recent`)
 - `recent.c/.h`: last 10 files opened or saved (full paths), kept in `~/.velo_recent` (falls back to the old `~/.edit_recent` on first run) (`USERPROFILE` or `HOME`)
 - `syntax.c/.h`: keyword/comment/string coloring. One scanner per language (chosen by file extension), each line scanned with the parser state carried from the line above. `draw_editor_area()` (ui.c) rescans from the top of the file each redraw to get that state. Options > Syntax turns it off. Unit tests in `tests/test_syntax.c` (`make test`)
+- Word wrap (Options > Word wrap, `options.wrap`): soft-wraps lines at the text width. Wrap math is pure and lives in `utf8.c` (`utf8_wrap_rows`, `utf8_wrap_row`, `utf8_wrap_cursor`, tested in `tests/test_utf8.c`). `ui.c` draws each file line as several rows via `draw_row(file_line, show_num, from, to, col0, scroll, ...)`; `buffer.c` has `line_rows()` and `cursor_set_wrapped()` for Up/Down and clicks; `scroll_x` stays 0 while wrap is on
 - `clipboard.c/.h`: selection (Shift+arrows, Ctrl+A select all), internal clipboard, cut/copy/paste (Ctrl+X/C/V)
 - `undo.c/.h`: undo/redo operation log (`undo_record_*` called from buffer.c, `undo_undo`/`undo_redo`, Ctrl+Z/Ctrl+Y)
 - `search.c/.h`: Find, Find Next, Replace, Go to Line (Ctrl+F, F3, Ctrl+R, Ctrl+G; Search menu)
