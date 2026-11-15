@@ -166,6 +166,10 @@ int main(int argc, char *argv[]) {
             case KEY_SHIFT_DOWN: sel_extend(); move_cursor(0, 1); break;
             case KEY_SHIFT_LEFT: sel_extend(); move_cursor(-1, 0); break;
             case KEY_SHIFT_RIGHT: sel_extend(); move_cursor(1, 0); break;
+            case KEY_BLOCK_UP: sel_extend_block(); move_cursor(0, -1); break;
+            case KEY_BLOCK_DOWN: sel_extend_block(); move_cursor(0, 1); break;
+            case KEY_BLOCK_LEFT: sel_extend_block(); move_cursor(-1, 0); break;
+            case KEY_BLOCK_RIGHT: sel_extend_block(); move_cursor(1, 0); break;
 
             case KEY_UP: sel_clear(); move_cursor(0, -1); break;
             case KEY_DOWN: sel_clear(); move_cursor(0, 1); break;

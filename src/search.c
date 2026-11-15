@@ -49,6 +49,7 @@ static int find_from(int sy, int sx, int wrap, int *fy, int *fx) {
 /* Selects a match: anchor at its start, cursor at its end (drawn in reverse video). */
 static void select_match(int y, int x) {
     editor.sel_active = 1;
+    editor.sel_block = 0;
     editor.sel_y = y;
     editor.sel_x = x;
     editor.cursor_y = y;

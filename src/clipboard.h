@@ -8,6 +8,10 @@ void sel_clear(void);
 void sel_select_all(void);             /* anchor at the start, cursor at the end of the document */
 int sel_range(int *y1, int *x1, int *y2, int *x2);  /* 1 if a non-empty selection, normalized */
 
+/* Rectangular selection (Alt+Shift+arrows, sel_block = 1). Covers the same display columns on every line. */
+void sel_extend_block(void);                        /* start or extend a block; plain selection while word wrap is on */
+void sel_block_cols(int *c1, int *c2);              /* left and right display columns of the block (c2 exclusive) */
+
 /* Deletes the selected text and clears the selection. No undo group of its own. */
 void sel_delete_selection(void);
 

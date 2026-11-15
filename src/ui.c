@@ -241,6 +241,9 @@ int text_w(void) {
 static unsigned char *kind_buf = NULL;
 static int kind_cap = 0;
 
+/* 1 while drawing a block selection: draw_row then reads sx1/sx2 as display columns. Set per redraw. */
+static int draw_block = 0;
+
 static unsigned char *kind_buffer(int n) {
     if (n > kind_cap) {
         unsigned char *p = realloc(kind_buf, (size_t)n * 2);
@@ -289,9 +292,14 @@ static void draw_row(int file_line, int show_num, int from, int to, int col0, in
             if (end > start) {
                 int selected = 0;
                 if (has_sel && file_line >= sy1 && file_line <= sy2) {
-                    int from = (file_line == sy1) ? sx1 : 0;
-                    int to = (file_line == sy2) ? sx2 : ln->len;
-                    selected = pos >= from && pos < to;
+                    if (draw_block) {
+                        /* sx1/sx2 are display columns here: selected if the character starts in [sx1, sx2) */
+                        selected = col >= sx1 && col < sx2;
+                    } else {
+                        int from = (file_line == sy1) ? sx1 : 0;
+                        int to = (file_line == sy2) ? sx2 : ln->len;
+                        selected = pos >= from && pos < to;
+                    }
                 }
                 int kind = kinds ? kinds[pos] : TK_PLAIN;
                 if (selected != hl || (!selected && kind != cur_kind)) {
@@ -359,6 +367,8 @@ static void draw_tab_bar(void) {
 void draw_editor_area() {
     int has_sel, sy1 = 0, sx1 = 0, sy2 = 0, sx2 = 0;
     has_sel = sel_range(&sy1, &sx1, &sy2, &sx2);
+    draw_block = has_sel && editor.sel_block;
+    if (draw_block) sel_block_cols(&sx1, &sx2);   /* block: columns instead of byte offsets */
 
     /* Token colors need the parser state at the top visible line, so scan the lines above it first.
        The scan runs again each redraw; it is cheap next to the terminal output. */
@@ -558,6 +568,7 @@ void show_help(void) {
     printf("Editing:\n");
     printf("  Arrow Keys      - Move cursor\n");
     printf("  Shift+Arrows    - Select text\n");
+    printf("  Alt+Shift+Arrows - Block (rectangular) select\n");
     printf("  Insert          - Toggle insert/overwrite mode\n");
     printf("  Delete          - Delete character\n");
     printf("  Backspace       - Backspace\n");

@@ -430,6 +430,14 @@ int read_key_wait(int ms) {
 
     /* Keys with no character: arrows, function keys, Insert/Delete */
     if (ch == 0) {
+        if (alt && shift) {
+            switch (vk) {
+                case VK_UP:    return KEY_BLOCK_UP;
+                case VK_DOWN:  return KEY_BLOCK_DOWN;
+                case VK_LEFT:  return KEY_BLOCK_LEFT;
+                case VK_RIGHT: return KEY_BLOCK_RIGHT;
+            }
+        }
         switch (vk) {
             case VK_UP:     return shift ? KEY_SHIFT_UP : KEY_UP;
             case VK_DOWN:   return shift ? KEY_SHIFT_DOWN : KEY_DOWN;
@@ -657,6 +665,13 @@ static int read_key_any(void) {
                                 case 'B': return KEY_SHIFT_DOWN;
                                 case 'C': return KEY_SHIFT_RIGHT;
                                 case 'D': return KEY_SHIFT_LEFT;
+                            }
+                        } else if (m == '4') {   /* Alt+Shift (xterm modifier 4) */
+                            switch (f) {
+                                case 'A': return KEY_BLOCK_UP;
+                                case 'B': return KEY_BLOCK_DOWN;
+                                case 'C': return KEY_BLOCK_RIGHT;
+                                case 'D': return KEY_BLOCK_LEFT;
                             }
                         }
                         return -1;

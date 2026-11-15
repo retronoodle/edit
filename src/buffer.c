@@ -88,6 +88,7 @@ void reset_document(void) {
     editor.scroll_y = 0;
     editor.modified = 0;
     editor.sel_active = 0;
+    editor.sel_block = 0;
     editor.syn_override = 0;
 }
 

@@ -17,6 +17,8 @@
 #include "buffer.h"
 #include "undo.h"
 #include "ui.h"
+#include "utf8.h"
+#include "options.h"
 #include "clipboard.h"
 #include "clipcodec.h"
 
@@ -27,24 +29,85 @@ static int clip_sys_stale = 0;   /* 1 when the last copy stayed internal, so Ctr
 /* Larger copies stay internal: many terminals drop OSC 52 sequences over ~100 KB. */
 #define OSC52_MAX 100000
 
+/* A plain Shift+move (or any extend) turns a block selection into a plain one. */
 void sel_extend(void) {
     if (!editor.sel_active) {
         editor.sel_active = 1;
         editor.sel_x = editor.cursor_x;
         editor.sel_y = editor.cursor_y;
     }
+    editor.sel_block = 0;
+}
+
+/* Alt+Shift+arrows: extend a rectangular selection. Off while word wrap is on (falls back to plain). */
+void sel_extend_block(void) {
+    sel_extend();
+    editor.sel_block = !options.wrap;
 }
 
 void sel_clear(void) {
     editor.sel_active = 0;
+    editor.sel_block = 0;
 }
 
 void sel_select_all(void) {
     editor.sel_active = 1;
+    editor.sel_block = 0;
     editor.sel_x = 0;
     editor.sel_y = 0;
     editor.cursor_y = editor.line_count - 1;
     editor.cursor_x = editor.lines[editor.cursor_y].len;
+}
+
+/* Display columns of a block's left and right edges: the smaller and larger of the anchor's and cursor's columns. */
+void sel_block_cols(int *c1, int *c2) {
+    const Line *a = &editor.lines[editor.sel_y];
+    const Line *b = &editor.lines[editor.cursor_y];
+    int ca = utf8_col(a->text, a->len, editor.sel_x);
+    int cb = utf8_col(b->text, b->len, editor.cursor_x);
+    *c1 = ca < cb ? ca : cb;
+    *c2 = ca < cb ? cb : ca;
+}
+
+/* Byte offset of the first character whose start column is at or past col (len if none). */
+static int byte_from_col(const char *t, int len, int col) {
+    int c = 0, pos = 0;
+    while (pos < len && c < col) {
+        int nxt = utf8_next(t, len, pos);
+        int cp;
+        utf8_decode(t + pos, len - pos, &cp);
+        c += cp_width(cp);
+        pos = nxt;
+    }
+    return pos;
+}
+
+/* The selection, captured once. Edits move the cursor, so loops over the lines must not re-read it. */
+typedef struct {
+    int block;                 /* 1 = rectangular */
+    int y1, x1, y2, x2;        /* plain span (bytes), normalized */
+    int c1, c2;                /* block display columns */
+} SelSpan;
+
+/* Returns sel_range's result (1 if a non-empty selection). */
+static int sel_span_capture(SelSpan *s) {
+    int any = sel_range(&s->y1, &s->x1, &s->y2, &s->x2);
+    s->block = editor.sel_block;
+    if (s->block) sel_block_cols(&s->c1, &s->c2);
+    return any;
+}
+
+/* Byte range [*from, *to) that the selection covers on line y. A block takes the same
+   display columns on every line. */
+static void sel_line_span(const SelSpan *s, int y, int *from, int *to) {
+    const Line *ln = &editor.lines[y];
+    if (s->block) {
+        *from = byte_from_col(ln->text, ln->len, s->c1);
+        *to = byte_from_col(ln->text, ln->len, s->c2);
+        return;
+    }
+    *from = (y == s->y1) ? s->x1 : 0;
+    *to = (y == s->y2) ? s->x2 : ln->len;
 }
 
 int sel_range(int *y1, int *x1, int *y2, int *x2) {
@@ -64,9 +127,22 @@ int sel_range(int *y1, int *x1, int *y2, int *x2) {
 }
 
 void sel_delete_selection(void) {
-    int y1, x1, y2, x2;
-    if (sel_range(&y1, &x1, &y2, &x2)) {
-        delete_range(y1, x1, y2, x2);
+    SelSpan s;
+    if (sel_span_capture(&s)) {
+        if (s.block) {
+            /* Each line loses its own slice. Line y1's slice start is where the cursor ends. */
+            int top_x = 0;
+            for (int y = s.y1; y <= s.y2; y++) {
+                int from, to;
+                sel_line_span(&s, y, &from, &to);
+                if (y == s.y1) top_x = from;
+                if (to > from) delete_range(y, from, y, to);
+            }
+            editor.cursor_y = s.y1;
+            editor.cursor_x = top_x;
+        } else {
+            delete_range(s.y1, s.x1, s.y2, s.x2);
+        }
     }
     sel_clear();
 }
@@ -183,30 +259,30 @@ static char *sys_clip_read(int *len) {
 
 /* Copies the selected text into the internal clipboard and the system clipboard. */
 void clip_copy(void) {
-    int y1, x1, y2, x2;
-    if (!sel_range(&y1, &x1, &y2, &x2)) {
+    SelSpan s;
+    if (!sel_span_capture(&s)) {
         show_message("No selection.");
         return;
     }
 
     int total = 0;
-    for (int y = y1; y <= y2; y++) {
-        int from = (y == y1) ? x1 : 0;
-        int to = (y == y2) ? x2 : editor.lines[y].len;
+    for (int y = s.y1; y <= s.y2; y++) {
+        int from, to;
+        sel_line_span(&s, y, &from, &to);
         total += to - from;
-        if (y < y2) total++;   /* the newline between lines */
+        if (y < s.y2) total++;   /* the newline between lines */
     }
 
     char *buf = malloc(total + 1);
     if (!buf) return;
 
     int p = 0;
-    for (int y = y1; y <= y2; y++) {
-        int from = (y == y1) ? x1 : 0;
-        int to = (y == y2) ? x2 : editor.lines[y].len;
+    for (int y = s.y1; y <= s.y2; y++) {
+        int from, to;
+        sel_line_span(&s, y, &from, &to);
         memcpy(buf + p, editor.lines[y].text + from, to - from);
         p += to - from;
-        if (y < y2) buf[p++] = '\n';
+        if (y < s.y2) buf[p++] = '\n';
     }
     buf[p] = '\0';
 

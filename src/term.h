@@ -40,6 +40,10 @@ void set_line_wrap(int enable);
 #define KEY_SHIFT_DOWN (KEY_BASE + 1015)
 #define KEY_SHIFT_LEFT (KEY_BASE + 1016)
 #define KEY_SHIFT_RIGHT (KEY_BASE + 1017)
+#define KEY_BLOCK_UP (KEY_BASE + 1018)      /* Alt+Shift+arrows: rectangular selection */
+#define KEY_BLOCK_DOWN (KEY_BASE + 1019)
+#define KEY_BLOCK_LEFT (KEY_BASE + 1022)
+#define KEY_BLOCK_RIGHT (KEY_BASE + 1023)
 #define KEY_INSERT (KEY_BASE + 1020)
 #define KEY_DELETE (KEY_BASE + 1021)
 #define KEY_F1 (KEY_BASE + 1101)
