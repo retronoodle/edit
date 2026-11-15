@@ -415,12 +415,14 @@ static void do_commit(void) {
     load_status();
 }
 
-/* Pushes. Prompts are switched off so a missing login fails instead of hanging. */
+/* Pushes. Prompts are switched off so a missing login fails instead of hanging.
+   ssh gets BatchMode and stdin is cut off, since ssh would otherwise ask on the
+   terminal we are running in and velo would wait forever. */
 static void do_push(void) {
 #ifdef _WIN32
-    const char *cmd = "set GIT_TERMINAL_PROMPT=0&& git push";
+    const char *cmd = "set GIT_TERMINAL_PROMPT=0&& set GIT_SSH_COMMAND=ssh -o BatchMode=yes&& git push <NUL";
 #else
-    const char *cmd = "GIT_TERMINAL_PROMPT=0 git push";
+    const char *cmd = "GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND='ssh -o BatchMode=yes' git push </dev/null";
 #endif
     char *out = NULL;
     run_cmd(cmd, &out);
