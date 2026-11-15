@@ -137,6 +137,14 @@ void draw_menu_bar() {
 /* Item text: the fixed label, or the live value for Options items. */
 static const char *item_label(const MenuItem *it, char *buf, int size) {
     if (!it->dynamic) return it->label;
+    if (it->action == ACT_LANGUAGE) {
+        SynLang auto_lang = syntax_lang_for(editor.filename);
+        if (editor.syn_override == 0)
+            snprintf(buf, size, "Language: Auto (%s)", syntax_lang_name(auto_lang));
+        else
+            snprintf(buf, size, "Language: %s", syntax_lang_name((SynLang)(editor.syn_override - 1)));
+        return buf;
+    }
     options_label(it->action, buf, size);
     return buf;
 }
@@ -354,10 +362,13 @@ void draw_editor_area() {
 
     /* Token colors need the parser state at the top visible line, so scan the lines above it first.
        The scan runs again each redraw; it is cheap next to the terminal output. */
-    SynLang lang = options.syntax ? syntax_lang_for(editor.filename) : SYN_PLAIN;
+    SynLang lang = options.syntax ? syntax_lang_effective(editor.filename, editor.syn_override) : SYN_PLAIN;
     int st = SYN_ST_NONE;
+    /* Start the parser SYN_LOOKBACK lines above the screen, not at line 0, so huge files stay quick. */
+    int first = editor.scroll_y - SYN_LOOKBACK;
+    if (first < 0) first = 0;
     if (lang != SYN_PLAIN) {
-        for (int f = 0; f < editor.scroll_y && f < editor.line_count; f++) {
+        for (int f = first; f < editor.scroll_y && f < editor.line_count; f++) {
             const Line *ln = &editor.lines[f];
             unsigned char *kb = kind_buffer(ln->len);
             if (ln->len > 0 && !kb) { lang = SYN_PLAIN; break; }   /* out of memory: plain text */

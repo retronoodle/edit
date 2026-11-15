@@ -72,6 +72,7 @@ void set_line_wrap(int enable);
 #define KEY_ALT_G (KEY_BASE + 1305)
 #define KEY_RESIZE (KEY_BASE + 1400)   /* the console window changed size */
 #define KEY_MOUSE (KEY_BASE + 1401)    /* a mouse event; read it with term_get_mouse() */
+#define KEY_PASTE (KEY_BASE + 1402)    /* bracketed paste from the terminal; take it with term_take_paste() */
 
 /* Mouse events. x/y are 0-based screen cells. Left button (press, drag, release),
    right button press only, and the wheel. */
@@ -88,6 +89,7 @@ typedef struct {
 int read_key(void);
 int read_key_wait(int ms);             /* waits up to ms (-1 = forever); returns -1 if no key came in time */
 void term_get_mouse(MouseEvent *ev);   /* the event behind the last KEY_MOUSE */
+char *term_take_paste(int *len);       /* the text behind the last KEY_PASTE; caller frees it (may be NULL) */
 unsigned long term_ticks_ms(void);     /* a millisecond clock for double-click timing */
 void term_update_size(void);           /* sets screen_w/screen_h from the console */
 

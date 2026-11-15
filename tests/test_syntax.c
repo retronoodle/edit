@@ -125,8 +125,18 @@ static void test_sgr(void) {
     CHECK(syntax_sgr(99, 0) != NULL && syntax_sgr(TK_KEYWORD, 7) != NULL, "bad inputs fall back");
 }
 
+static void test_override(void) {
+    CHECK(syntax_lang_effective("notes.txt", 0) == SYN_PLAIN, "auto: txt is plain");
+    CHECK(syntax_lang_effective("main.c", 0) == SYN_C, "auto: follows extension");
+    CHECK(syntax_lang_effective("main.c", SYN_PY + 1) == SYN_PY, "override wins over extension");
+    CHECK(syntax_lang_effective("main.c", SYN_PLAIN + 1) == SYN_PLAIN, "override can force plain");
+    CHECK(strcmp(syntax_lang_name(SYN_C), "C/C++") == 0, "C name");
+    CHECK(strcmp(syntax_lang_name(SYN_PLAIN), "Plain") == 0, "plain name");
+}
+
 int main(void) {
     test_lang_for();
+    test_override();
     test_c();
     test_js();
     test_py();

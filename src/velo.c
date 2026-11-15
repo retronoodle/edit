@@ -69,6 +69,9 @@ static int run_action(int action) {
         case ACT_WRAP:
             options_cycle(action);
             break;
+        case ACT_LANGUAGE:   /* per file, not saved: Auto, Plain, then each language */
+            editor.syn_override = (editor.syn_override + 1) % 9;
+            break;
     }
     return 0;
 }
@@ -119,6 +122,14 @@ int main(int argc, char *argv[]) {
         if (key == KEY_RESIZE) {    /* window changed size: re-read it and redraw all */
             term_update_size();
             clear_screen();
+            needs_redraw = 1;
+            continue;
+        }
+        if (key == KEY_PASTE) {     /* text pasted by the terminal (Ctrl+Shift+V): insert it as typed text */
+            int len = 0;
+            char *text = term_take_paste(&len);
+            if (text && !editor.menu_active) clip_paste_text(text, len);
+            free(text);
             needs_redraw = 1;
             continue;
         }

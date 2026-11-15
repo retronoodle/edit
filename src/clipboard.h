@@ -18,6 +18,7 @@ int sel_begin_replace(void);
 
 void clip_copy(void);
 void clip_cut(void);
-void clip_paste(void);
+void clip_paste(void);                              /* Ctrl+V: system clipboard, else the internal one */
+void clip_paste_text(const char *s, int len);       /* inserts text (e.g. a terminal paste) over any selection, as one undo step */
 
 #endif

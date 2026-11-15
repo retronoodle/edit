@@ -25,6 +25,7 @@
 #include "editor.h"
 #include "term.h"
 #include "utf8.h"
+#include "clipcodec.h"
 
 /* Screen size in cells. Set by term_update_size(). */
 int screen_w = SCREEN_DEFAULT_W;
@@ -85,6 +86,18 @@ static MouseEvent g_mouse;
 
 void term_get_mouse(MouseEvent *ev) {
     *ev = g_mouse;
+}
+
+/* The text of the last bracketed paste (KEY_PASTE). Ownership passes to term_take_paste(). */
+static char *g_paste = NULL;
+static int g_paste_len = 0;
+
+char *term_take_paste(int *len) {
+    char *p = g_paste;
+    *len = g_paste_len;
+    g_paste = NULL;
+    g_paste_len = 0;
+    return p;
 }
 
 unsigned long term_ticks_ms(void) {
@@ -300,7 +313,7 @@ static void on_winch(int sig) {
 }
 
 void disable_raw_mode() {
-    printf("\x1b[?1006l\x1b[?1002l");   /* mouse reporting off */
+    printf("\x1b[?2004l\x1b[?1006l\x1b[?1002l");   /* bracketed paste and mouse reporting off */
     fflush(stdout);
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
 }
@@ -325,8 +338,9 @@ void enable_raw_mode() {
 
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
 
-    /* Button-event tracking (1002) with SGR coordinates (1006): clicks, drags and wheel */
-    printf("\x1b[?1002h\x1b[?1006h");
+    /* Button-event tracking (1002) with SGR coordinates (1006): clicks, drags and wheel.
+       Bracketed paste (2004): the terminal wraps pasted text in ESC[200~ ... ESC[201~. */
+    printf("\x1b[?2004h\x1b[?1002h\x1b[?1006h");
     fflush(stdout);
 }
 
@@ -513,13 +527,57 @@ int read_key_wait(int ms) {
     return read_key_any();
 }
 
-/* Like read_key_wait, but skips mouse events (prompts and browsers use this). */
+/* Like read_key_wait, but skips mouse events and pastes (prompts and browsers use this). */
 int read_key() {
     int k;
     do {
         k = read_key_any();
-    } while (k == KEY_MOUSE);
+        if (k == KEY_PASTE) {
+            int len;
+            free(term_take_paste(&len));
+        }
+    } while (k == KEY_MOUSE || k == KEY_PASTE);
     return k;
+}
+
+/* Reads a bracketed paste after ESC[200~ up to ESC[201~. The text is cleaned and
+   kept for term_take_paste(). Returns KEY_PASTE, or -1 if memory ran out. */
+static int read_paste(void) {
+    static const char end[] = "\x1b[201~";
+    const size_t end_len = sizeof end - 1;
+    size_t cap = 0, len = 0, seen = 0;
+    char *buf = NULL;
+    char tail[sizeof end - 1];   /* last bytes read, to spot the end marker */
+    int failed = 0;              /* out of memory: keep reading (and dropping) so the rest is not typed */
+    for (;;) {
+        int c = getch_impl();
+        if (c == EOF) break;
+        if (!failed) {
+            if (len == cap) {
+                size_t ncap = cap ? cap * 2 : 4096;
+                char *p = realloc(buf, ncap);
+                if (p) { buf = p; cap = ncap; }
+                else failed = 1;
+            }
+            if (!failed) buf[len++] = (char)c;
+        }
+        memmove(tail, tail + 1, end_len - 1);
+        tail[end_len - 1] = (char)c;
+        if (seen < end_len) seen++;
+        if (seen == end_len && memcmp(tail, end, end_len) == 0) {
+            if (!failed) len -= end_len;   /* the end marker is not part of the text */
+            break;
+        }
+    }
+    if (failed) {
+        free(buf);
+        return -1;
+    }
+    if (buf) len = (size_t)clip_clean_paste(buf, (int)len);
+    free(g_paste);
+    g_paste = buf;
+    g_paste_len = (int)len;
+    return KEY_PASTE;
 }
 
 static int read_key_any(void) {
@@ -579,11 +637,11 @@ static int read_key_any(void) {
 
         if (b >= '0' && b <= '9') {
             // CSI with digits, possibly ending with '~'
-            char digits[4];
+            char digits[8];   /* room for ESC[200~ and ESC[201~ (three digits) */
             int idx = 0;
             digits[idx++] = (char)b;
             int c;
-            while (idx < 3) {
+            while (idx < 7) {
                 c = getch_impl();
                 if (c == EOF) break;
                 if (c >= '0' && c <= '9') {
@@ -617,6 +675,7 @@ static int read_key_any(void) {
                             case 17: return KEY_F6;     // ESC[17~
                             case 18: return KEY_F7;     // ESC[18~
                             case 21: return KEY_F10;    // ESC[21~
+                            case 200: return read_paste(); // ESC[200~ starts a bracketed paste
                             default: return -1;
                         }
                     }

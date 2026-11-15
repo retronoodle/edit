@@ -476,6 +476,7 @@ int open_path(const char *name, int create_missing) {
     }
 
     options.crlf = 0;   /* a file's own line ending is detected below, else LF */
+    editor.syn_override = 0;   /* a reused blank tab must not keep another file's language */
     if (in) {
         load_stream(in);
         fclose(in);

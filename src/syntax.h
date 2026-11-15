@@ -36,6 +36,15 @@ enum {
 /* Language for a file name, by extension. SYN_PLAIN when unknown. */
 SynLang syntax_lang_for(const char *filename);
 
+/* Language to use for a document: override 0 means auto (by extension), otherwise override is SynLang + 1. */
+SynLang syntax_lang_effective(const char *filename, int override);
+
+/* Display name of a language, e.g. "C/C++". */
+const char *syntax_lang_name(SynLang lang);
+
+/* How many lines above the top of the screen are scanned to get the parser state there. */
+#define SYN_LOOKBACK 1000
+
 /* Scans one line. state_in is the state at the start of the line; the
    returned value is the state at its end. kinds[0..len-1] receives a TK_* per byte. */
 int syntax_scan_line(SynLang lang, int state_in, const char *text, int len, unsigned char *kinds);

@@ -29,9 +29,10 @@ Sources live in `src/` (paths below are relative to it). Unit tests live in `tes
 - `tabs.c/.h`: open documents as tabs. The active document is the global `editor` (plus undo.c's active history); other tabs hold their own copy in a slot. `tab_switch()` moves data between them. Tab bar drawing and hit-testing live here too (`tab_bar_range`, `tab_bar_hit`)
 - `files.c/.h`: save/save-as/new tab/open (`open_path`)/close tab/exit (asks about each modified tab), the folder browser (`browse`, shared by Open and Save As) and the recent files list (`do_open_recent`)
 - `recent.c/.h`: last 10 files opened or saved (full paths), kept in `~/.velo_recent` (falls back to the old `~/.edit_recent` on first run) (`USERPROFILE` or `HOME`)
-- `syntax.c/.h`: keyword/comment/string coloring. One scanner per language (chosen by file extension), each line scanned with the parser state carried from the line above. `draw_editor_area()` (ui.c) rescans from the top of the file each redraw to get that state. Options > Syntax turns it off. Unit tests in `tests/test_syntax.c` (`make test`)
+- `syntax.c/.h`: keyword/comment/string coloring. One scanner per language (chosen by file extension, or per document by `editor.syn_override` via Options > Language; `syntax_lang_effective`), each line scanned with the parser state carried from the line above. `draw_editor_area()` (ui.c) rescans from `SYN_LOOKBACK` (1000) lines above the screen each redraw to get that state. Options > Syntax turns it off. Unit tests in `tests/test_syntax.c` (`make test`)
 - Word wrap (Options > Word wrap, `options.wrap`): soft-wraps lines at the text width. Wrap math is pure and lives in `utf8.c` (`utf8_wrap_rows`, `utf8_wrap_row`, `utf8_wrap_cursor`, tested in `tests/test_utf8.c`). `ui.c` draws each file line as several rows via `draw_row(file_line, show_num, from, to, col0, scroll, ...)`; `buffer.c` has `line_rows()` and `cursor_set_wrapped()` for Up/Down and clicks; `scroll_x` stays 0 while wrap is on
-- `clipboard.c/.h`: selection (Shift+arrows, Ctrl+A select all), internal clipboard, cut/copy/paste (Ctrl+X/C/V)
+- `clipboard.c/.h`: selection (Shift+arrows, Ctrl+A select all), internal clipboard, cut/copy/paste (Ctrl+X/C/V). Copy also sets the system clipboard: OSC 52 on POSIX (skipped above 100 KB), the Windows clipboard on Windows. Ctrl+V reads the system clipboard first (`wl-paste`, `xclip`, `xsel` on Linux) and falls back to the internal one. Terminal pastes (bracketed paste, `KEY_PASTE`) go through `clip_paste_text()`
+- `clipcodec.c/.h`: pure helpers, base64 for OSC 52 and paste cleanup (CRLF to LF, control bytes dropped). Unit tests in `tests/test_clipcodec.c` (`make test`)
 - `undo.c/.h`: undo/redo operation log (`undo_record_*` called from buffer.c, `undo_undo`/`undo_redo`, Ctrl+Z/Ctrl+Y)
 - `search.c/.h`: Find, Find Next, Replace, Go to Line (Ctrl+F, F3, Ctrl+R, Ctrl+G; Search menu)
 - `utf8.c/.h`: UTF-8 decode/encode, character boundaries, display width (`cp_width`, `utf8_col`, `utf8_byte_at_col`). `tests/test_utf8.c` holds its unit tests (`make test`)
@@ -92,7 +93,7 @@ The main loop in `main()` (velo.c) reads a key. Menu activation and menu-mode ke
 - Line storage grows on demand (`line_reserve`, `lines_reserve`, `insert_line_at`, `delete_line_at` in buffer.c); `reset_document()` clears the buffer
 - Build is `make` (compiles all `.c` files listed in the Makefile). Add new `src/*.c` files to `SOURCES` and their headers to `HEADERS` (both use `$(SRC)/`)
 - The file browser still caps listings at MAX_DIR_ENTRIES=512
-- Clipboard is internal only (no system clipboard yet)
+- Clipboard: copy goes to the system clipboard too (see `clipboard.c`). Bracketed paste is on while velo runs (`enable_raw_mode`), so Ctrl+Shift+V in the terminal pastes into velo. Windows has no bracketed paste, so terminal pastes arrive as typed keys there
 - Tab key inserts `options.tab_width` spaces (2, 4 or 8; default 4)
 - Files are saved with LF by default. Opening a file with CRLF switches saving to CRLF; the Options menu can change it. Files are written and read in binary mode, so the line ending is controlled by `options.crlf`
 - Options are saved to `~/.velo_config` (`USERPROFILE` or `HOME`) on every change and loaded at startup, before files open. Missing or bad lines fall back to the defaults

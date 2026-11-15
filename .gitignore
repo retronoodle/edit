@@ -7,3 +7,5 @@ test_syntax
 test_syntax.exe
 test_options
 test_options.exe
+test_clipcodec
+test_clipcodec.exe

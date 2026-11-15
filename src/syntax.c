@@ -315,3 +315,14 @@ const char *syntax_sgr(int kind, int scheme) {
     if (kind < 0 || kind > TK_HEADING) kind = TK_PLAIN;
     return palette[scheme][kind];
 }
+
+SynLang syntax_lang_effective(const char *filename, int override) {
+    if (override > 0) return (SynLang)(override - 1);
+    return syntax_lang_for(filename);
+}
+
+const char *syntax_lang_name(SynLang lang) {
+    static const char *names[] = {"Plain", "C/C++", "JS/TS", "PHP", "Python", "JSON", "Markdown", "INI"};
+    if (lang < 0 || lang > SYN_INI) return names[0];
+    return names[lang];
+}

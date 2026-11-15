@@ -39,6 +39,7 @@ typedef struct {
     int sel_x, sel_y;
     long disk_mtime;        /* file's mtime and size when we last loaded or saved it (watch.c) */
     long disk_size;
+    int syn_override;       /* syntax language for this document: 0 = by extension, else SynLang + 1 */
 } Editor;
 
 /* The document being edited. Defined in buffer.c. */

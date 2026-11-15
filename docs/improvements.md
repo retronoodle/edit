@@ -61,7 +61,7 @@ What the editor needs to move from a DOS-style toy to something that feels curre
 - ~~**Better file operations**~~ (done): Ctrl+E / File > Recent Files lists the last 10 files opened or saved (kept in `~/.velo_recent`; missing files are dropped when picked). Save As now uses the folder browser with a name field and asks before overwriting. Open browser: R jumps to recent. Lives in `files.c` (`browse`, `do_open_recent`) and `recent.c`.
   - Limits: the recent list is per user, not per folder; paths are compared without case on Windows; the name field takes typed characters only (no paste).
 - ~~**Syntax highlighting**~~ (done): keywords, comments, strings and numbers. Languages picked by extension: C/C++, JS/TS, PHP, Python, JSON, Markdown (headings), INI. Options > Syntax turns it off. Colors follow the Default/Blue/Light scheme. Lives in `syntax.c` (scanners), drawn from `ui.c` (`draw_row`).
-  - Limits: no per-file override; the file is rescanned from the top on every redraw (fine for thousands of lines, not checked on very large files); no highlighting for Markdown inline code/bold, or for JSON/INI beyond the basics; the language follows the file name, so it changes on Save As.
+  - Per-file language: Options > Language cycles Auto, Plain and each language for the open file (not saved; a Save As to a new name keeps the choice). Rescans start 1000 lines above the screen, so a block comment or string opened further up may color wrong until it closes. no highlighting for Markdown inline code/bold, or for JSON/INI beyond the basics; the language follows the file name, so it changes on Save As.
 - ~~**Statusline**~~ (done): shows line and col, INS/OVR, modified flag, the current folder (home shortened to `~`) and the git branch (short hash when detached; hidden outside a repo). Narrow windows drop the folder, then the branch, then the F1 hint; the filename stays on the right. Lives in `gitinfo.c` (reads `.git` files directly, cached and refreshed every 2 s) and `ui.c` (`draw_status_line`).
   - Limits: widths are counted in bytes, so non-ASCII folder names can be cut short on the status line.
 - ~~**Eye candy**~~ (done): chrome colors per scheme (`options_chrome_sgr` in `options.c`): colored menu bar with bold mnemonics, tab bar background with the active tab highlighted and `*` in the warning color, status line with a `│` separator and the branch in its own color, a box-drawn dropdown, and a `│` line between the line-number gutter and the text. Lives in `ui.c`.
@@ -70,7 +70,6 @@ What the editor needs to move from a DOS-style toy to something that feels curre
 ## Nice to Have (Polish)
 
 - **Visual block selection**: rectangular selection (Alt+Shift+arrows). Plain selection is already reverse video.
-- **Per-file syntax override**, and syntax rescans limited to the visible region for very large files.
 
 ## Current Constraints
 
