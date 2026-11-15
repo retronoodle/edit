@@ -104,10 +104,10 @@ Each feature is only a system prompt plus glue code.
 
 ### Phase 5: `ai_ask` transport
 
-- [ ] 5.1 Write the headers to a 0600 temp curl config and delete it afterwards
-- [ ] 5.2 Run curl through `popen`/`_popen` with `--max-time`, and read the whole response
-- [ ] 5.3 Map curl failures and API error bodies to short messages
-- [ ] 5.4 Check callers: no key and no model give a clear "set up AI" message
+- [x] 5.1 Write the headers to a 0600 temp curl config and delete it afterwards
+- [x] 5.2 Run curl through `popen`/`_popen` with `--max-time`, and read the whole response
+- [x] 5.3 Map curl failures and API error bodies to short messages
+- [x] 5.4 Check callers: no key and no model give a clear "set up AI" message
 
 ### Phase 6: Ask AI on a selection
 

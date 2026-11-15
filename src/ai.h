@@ -40,4 +40,20 @@ char *ai_build_openai_body(const char *model, const char *system,
    "/chat/completions" is appended unless the base already ends with it. */
 char *ai_openai_url(const char *base_url);
 
+/* Transport helpers (pure). */
+
+/* curl config text (malloc'd, free it): url, plus the headers for the provider
+   ("anthropic" uses x-api-key and anthropic-version, anything else a Bearer token).
+   Values are quoted and escaped for curl's config parser, so the key stays out of
+   the command line. Returns NULL on allocation failure. */
+char *ai_curl_config(const char *provider, const char *url, const char *key);
+
+/* Reply text from a response body (malloc'd, free it). Anthropic reads content.0.text,
+   other providers choices.0.message.content. On failure returns NULL and fills err
+   (size errsize) with the API error message or "The AI returned no text". */
+char *ai_parse_reply(const char *provider, const char *body, char *err, int errsize);
+
+/* Short message for a curl exit code, or NULL when there is no special message. */
+const char *ai_curl_error(int curl_exit);
+
 #endif

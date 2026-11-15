@@ -175,6 +175,56 @@ int main(void) {
     check_url("https://x.test/v1/chat/completions", "https://x.test/v1/chat/completions");
     check_url("  http://h/v1  ", "http://h/v1/chat/completions");
 
+    /* curl config: url and headers per provider, values escaped */
+    {
+        char *c = ai_curl_config("anthropic", "https://a.test/v1", "k\"1");
+        const char *want = "url = \"https://a.test/v1\"\n"
+                           "header = \"content-type: application/json\"\n"
+                           "header = \"x-api-key: k\\\"1\"\n"
+                           "header = \"anthropic-version: 2023-06-01\"\n";
+        if (!c || strcmp(c, want) != 0) {
+            printf("FAIL curl_config anthropic = \"%s\"\n", c ? c : "(null)");
+            failures++;
+        }
+        free(c);
+
+        c = ai_curl_config("openai", "https://o.test/chat/completions", "sk");
+        want = "url = \"https://o.test/chat/completions\"\n"
+               "header = \"content-type: application/json\"\n"
+               "header = \"authorization: Bearer sk\"\n";
+        if (!c || strcmp(c, want) != 0) {
+            printf("FAIL curl_config openai = \"%s\"\n", c ? c : "(null)");
+            failures++;
+        }
+        free(c);
+    }
+
+    /* Reply parsing: text, empty text, API error, junk */
+    {
+        char err[128];
+        char *r = ai_parse_reply("anthropic", "{\"content\":[{\"type\":\"text\",\"text\":\"Hi\"}]}", err, sizeof err);
+        if (!r || strcmp(r, "Hi") != 0) { printf("FAIL parse anthropic\n"); failures++; }
+        free(r);
+
+        r = ai_parse_reply("openai", "{\"choices\":[{\"message\":{\"content\":\"Yo\"}}]}", err, sizeof err);
+        if (!r || strcmp(r, "Yo") != 0) { printf("FAIL parse openai\n"); failures++; }
+        free(r);
+
+        r = ai_parse_reply("openai", "{\"choices\":[{\"message\":{\"content\":\"\"}}]}", err, sizeof err);
+        if (r || strcmp(err, "The AI returned no text") != 0) { printf("FAIL parse empty: %s\n", err); failures++; }
+
+        r = ai_parse_reply("anthropic", "{\"error\":{\"message\":\"bad key\"}}", err, sizeof err);
+        if (r || strcmp(err, "AI error: bad key") != 0) { printf("FAIL parse api error: %s\n", err); failures++; }
+
+        r = ai_parse_reply("anthropic", "<html>oops", err, sizeof err);
+        if (r || strcmp(err, "Unexpected reply from the AI") != 0) { printf("FAIL parse junk: %s\n", err); failures++; }
+    }
+
+    /* curl exit codes */
+    if (!ai_curl_error(7) || strstr(ai_curl_error(7), "connect") == NULL) { printf("FAIL curl 7\n"); failures++; }
+    if (!ai_curl_error(28) || strstr(ai_curl_error(28), "timed out") == NULL) { printf("FAIL curl 28\n"); failures++; }
+    if (ai_curl_error(99) != NULL) { printf("FAIL curl 99\n"); failures++; }
+
     if (failures == 0) printf("test_ai: all passed\n");
     return failures ? 1 : 0;
 }

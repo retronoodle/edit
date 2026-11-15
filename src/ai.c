@@ -403,3 +403,89 @@ char *ai_openai_url(const char *base_url) {
     out[n] = '\0';
     return out;
 }
+
+/* Transport helpers (pure). */
+
+/* Appends s escaped for a double-quoted curl config value. */
+static int put_cfg_str(Buf *b, const char *s) {
+    if (!buf_putc(b, '"')) return 0;
+    for (; *s; s++) {
+        int ok;
+        switch (*s) {
+        case '\\': ok = put_lit(b, "\\\\"); break;
+        case '"':  ok = put_lit(b, "\\\""); break;
+        case '\n': ok = put_lit(b, "\\n"); break;
+        case '\r': ok = put_lit(b, "\\r"); break;
+        case '\t': ok = put_lit(b, "\\t"); break;
+        default:   ok = buf_putc(b, *s); break;
+        }
+        if (!ok) return 0;
+    }
+    return buf_putc(b, '"');
+}
+
+/* Appends header = "name: value" as one curl config line. */
+static int put_cfg_header(Buf *b, const char *name, const char *value) {
+    char *line = malloc(strlen(name) + strlen(value) + 3);
+    if (!line) return 0;
+    sprintf(line, "%s: %s", name, value);
+    int ok = put_lit(b, "header = ") && put_cfg_str(b, line) && buf_putc(b, '\n');
+    free(line);
+    return ok;
+}
+
+char *ai_curl_config(const char *provider, const char *url, const char *key) {
+    Buf b;
+    if (!buf_init(&b)) return NULL;
+    int anthropic = provider && strcmp(provider, "anthropic") == 0;
+    int ok = put_lit(&b, "url = ") && put_cfg_str(&b, url ? url : "") && buf_putc(&b, '\n') &&
+             put_cfg_header(&b, "content-type", "application/json");
+    if (anthropic) {
+        ok = ok && put_cfg_header(&b, "x-api-key", key ? key : "") &&
+             put_cfg_header(&b, "anthropic-version", "2023-06-01");
+    } else {
+        char *auth = NULL;
+        if (key) {
+            auth = malloc(strlen(key) + 8);
+            if (!auth) {
+                free(b.p);
+                return NULL;
+            }
+            sprintf(auth, "Bearer %s", key);
+        }
+        ok = ok && put_cfg_header(&b, "authorization", auth ? auth : "Bearer ");
+        free(auth);
+    }
+    return finish_body(&b, ok);
+}
+
+char *ai_parse_reply(const char *provider, const char *body, char *err, int errsize) {
+    int anthropic = provider && strcmp(provider, "anthropic") == 0;
+    char *text = ai_json_get_string(body ? body : "",
+                                    anthropic ? "content.0.text" : "choices.0.message.content");
+    if (text) {
+        if (*text) return text;
+        free(text);
+        if (err && errsize > 0) snprintf(err, errsize, "The AI returned no text");
+        return NULL;
+    }
+    char *msg = ai_json_error(body ? body : "");
+    if (err && errsize > 0) {
+        if (msg) snprintf(err, errsize, "AI error: %s", msg);
+        else snprintf(err, errsize, "Unexpected reply from the AI");
+    }
+    free(msg);
+    return NULL;
+}
+
+const char *ai_curl_error(int curl_exit) {
+    switch (curl_exit) {
+    case 6:  return "Could not resolve the AI server host";
+    case 7:  return "Could not connect to the AI server";
+    case 28: return "The AI request timed out";
+    case 35: /* fall through */
+    case 60: return "TLS error talking to the AI server";
+    case 22: return "The AI server returned an HTTP error";
+    default: return NULL;
+    }
+}
