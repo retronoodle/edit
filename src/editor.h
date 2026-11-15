@@ -39,6 +39,7 @@ typedef struct {
     int sel_x, sel_y;
     int sel_block;          /* 1 = rectangular selection (Alt+Shift+arrows), columns between anchor and cursor */
     long disk_mtime;        /* file's mtime and size when we last loaded or saved it (watch.c) */
+    long disk_mtime_ns;     /* sub-second part of that mtime, so a same-second write still shows up */
     long disk_size;
     int syn_override;       /* syntax language for this document: 0 = by extension, else SynLang + 1 */
 } Editor;

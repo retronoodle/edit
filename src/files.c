@@ -106,6 +106,7 @@ int do_save_as(void) {
     snprintf(old, sizeof(old), "%s", editor.filename);
     if (!write_file(name)) return 0;
     strcpy(editor.filename, name);
+    watch_record();   /* write_file recorded the old name; record the new file's state */
     tab_mark_named();
     recent_add(name);
     if (strcmp(old, name) != 0) recovery_discard_name(old);   /* old name's backup is stale */

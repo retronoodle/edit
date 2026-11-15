@@ -2,6 +2,7 @@
    main loop's idle tick (stat only, no threads), so it also works on Windows.
    Only named tabs are checked. The recorded state lives in Editor, so it moves
    with the tab. */
+#define _POSIX_C_SOURCE 200809L   /* st_mtim (nanosecond mtime) under -std=c99 */
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -17,22 +18,32 @@
 #include "tabs.h"
 #include "watch.h"
 
-/* Reads the file's mtime and size. Returns 0 if it cannot be stat'ed. */
-static int disk_state(const char *name, long *mtime, long *size) {
+/* Reads the file's mtime (seconds and nanoseconds) and size. Returns 0 if it cannot be stat'ed.
+   Windows' stat has only whole seconds, so its nanoseconds are always 0. */
+static int disk_state(const char *name, long *mtime, long *mtime_ns, long *size) {
     struct stat st;
     if (stat(name, &st) != 0) return 0;
     *mtime = (long)st.st_mtime;
+#if defined(__APPLE__)
+    *mtime_ns = (long)st.st_mtimespec.tv_nsec;
+#elif !defined(_WIN32)
+    *mtime_ns = (long)st.st_mtim.tv_nsec;
+#else
+    *mtime_ns = 0;
+#endif
     *size = (long)st.st_size;
     return 1;
 }
 
 void watch_record(void) {
-    long mtime = 0, size = 0;
-    if (!disk_state(editor.filename, &mtime, &size)) {
+    long mtime = 0, mtime_ns = 0, size = 0;
+    if (!disk_state(editor.filename, &mtime, &mtime_ns, &size)) {
         mtime = 0;
+        mtime_ns = 0;
         size = 0;
     }
     editor.disk_mtime = mtime;
+    editor.disk_mtime_ns = mtime_ns;
     editor.disk_size = size;
 }
 
@@ -96,9 +107,9 @@ int watch_tick(void) {
     if (!tab_named(tab_current())) return 0;
     if (editor.filename[0] == '\0') return 0;
 
-    long mtime = 0, size = 0;
-    if (!disk_state(editor.filename, &mtime, &size)) return 0;   /* deleted or moved: stay quiet */
-    if (mtime == editor.disk_mtime && size == editor.disk_size) return 0;
+    long mtime = 0, mtime_ns = 0, size = 0;
+    if (!disk_state(editor.filename, &mtime, &mtime_ns, &size)) return 0;   /* deleted or moved: stay quiet */
+    if (mtime == editor.disk_mtime && mtime_ns == editor.disk_mtime_ns && size == editor.disk_size) return 0;
 
     ask_reload();
     return 1;

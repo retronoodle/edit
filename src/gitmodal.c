@@ -1,6 +1,6 @@
 /* Git panel (Alt+G): branch and changed files of the current folder's repo,
-   with commit (stages everything), push, branch switch/new, merge and merge abort.
-   git runs as a child process. */
+   with stage/unstage per file (or all), commit (staged files only), push,
+   branch switch/new, merge and merge abort. git runs as a child process. */
 #ifndef _WIN32
     #define _POSIX_C_SOURCE 200809L   /* popen/pclose under -std=c99 */
 #endif
@@ -34,6 +34,7 @@ static const char *header = "";  /* "master...origin/master [ahead 1]" */
 static int in_repo = 0;
 static int merging = 0;          /* a merge is stopped (MERGE_HEAD exists) */
 static int top = 0;             /* first visible file row */
+static int sel = 0;             /* highlighted file (Up/Down move it, Space stages it) */
 static char msg[MSG_MAX];       /* result of the last action, or a git error */
 
 /* Output panel: the last git action, replaced by each new one. */
@@ -84,11 +85,18 @@ static int list_rows(void) {
     return r < 1 ? 1 : r;
 }
 
+/* Keeps the selected file in range and scrolls the list so it stays visible. */
 static void clamp_top(void) {
+    if (sel >= nfiles) sel = nfiles - 1;
+    if (sel < 0) sel = 0;
+
     int max = nfiles - list_rows();
     if (max < 0) max = 0;
     if (top > max) top = max;
     if (top < 0) top = 0;
+
+    if (sel < top) top = sel;
+    if (sel >= top + list_rows()) top = sel - list_rows() + 1;
 }
 
 /* Runs a shell command with stderr merged in. Output goes to *out (malloc'd,
@@ -232,6 +240,18 @@ static FileKind file_kind(const char *line) {
     return FS_OTHER;
 }
 
+/* 1 if the file has something in the index (a conflict is never staged here). */
+static int file_staged(const char *line) {
+    char x = line[0];
+    return x != ' ' && x != '?' && file_kind(line) != FS_CONFLICT;
+}
+
+static int count_staged(void) {
+    int n = 0;
+    for (int i = 0; i < nfiles; i++) if (file_staged(files[i])) n++;
+    return n;
+}
+
 static const char *kind_label(FileKind k) {
     switch (k) {
         case FS_CONFLICT:  return "conflict";
@@ -267,6 +287,8 @@ static void summary_text(char *buf, size_t size) {
         if (w < 0 || (size_t)w >= size - n) break;
         n += (size_t)w;
     }
+    int st = count_staged();
+    if (st > 0 && n < size) snprintf(buf + n, size - n, "%s%d staged", n ? ", " : "", st);
 }
 
 static void put_row(int y, const char *sgr, const char *text);
@@ -360,10 +382,15 @@ static void draw(void) {
             if (i == 0) t = "  Working tree clean.";
         } else if (top + i < nfiles) {
             FileKind k = file_kind(files[top + i]);
-            snprintf(line, sizeof line, "  %-10s %s", kind_label(k), files[top + i] + 3);
+            snprintf(line, sizeof line, "  [%c] %-10s %s", file_staged(files[top + i]) ? 'x' : ' ',
+                     kind_label(k), files[top + i] + 3);
             t = line;
-            snprintf(row_sgr, sizeof row_sgr, "%s%s", options_base_sgr(), kind_sgr[options.scheme][k]);
-            sgr = row_sgr;
+            if (top + i == sel) {
+                sgr = options_chrome_sgr(CH_BAR);
+            } else {
+                snprintf(row_sgr, sizeof row_sgr, "%s%s", options_base_sgr(), kind_sgr[options.scheme][k]);
+                sgr = row_sgr;
+            }
         }
         put_row(1 + i, sgr, t);
     }
@@ -386,8 +413,8 @@ static void draw(void) {
 
     const char *foot;
     if (!in_repo) foot = " Esc Close";
-    else if (merging) foot = " C Commit  A Abort merge  R Refresh  Esc Close";
-    else foot = " C Commit  P Push  B Branch  M Merge  R Refresh  Esc Close";
+    else if (merging) foot = " Space Stage  S/U All  C Commit  A Abort merge  R Refresh  Esc Close";
+    else foot = " Space Stage  S/U All  C Commit  P Push  B Branch  M Merge  R Refresh  Esc Close";
     put_row(screen_h - 1, options_chrome_sgr(CH_STATUS), foot);
     fb_flush();
 }
@@ -530,8 +557,82 @@ static void add_reload_hint(void) {
     set_msg(tmp);
 }
 
-/* Asks for a message, stages everything with git add -A, then commits. */
+/* Paths go through the shell, so quotes, backticks, $ and backslashes are not allowed
+   (git's quoted names start with a quote, so those are refused too). */
+static int valid_path(const char *s) {
+    if (!*s || *s == '"') return 0;
+    for (const char *q = s; *q; q++) {
+        if (strchr("\"`$\\\n\r", *q)) return 0;
+    }
+    return 1;
+}
+
+/* Stages the selected file, or takes it out of the index when it is fully staged.
+   Renames show as "old -> new"; unstaging a rename restores both sides. */
+static void do_toggle(void) {
+    if (!in_repo || nfiles == 0) return;
+    const char *line = files[sel];
+    char y = line[1];
+    int unstage = file_staged(line) && y == ' ';
+
+    char old_p[512] = "", new_p[512] = "";
+    const char *arrow = strstr(line + 3, " -> ");
+    if (arrow) {
+        snprintf(old_p, sizeof old_p, "%.*s", (int)(arrow - (line + 3)), line + 3);
+        snprintf(new_p, sizeof new_p, "%s", arrow + 4);
+    } else {
+        snprintf(new_p, sizeof new_p, "%s", line + 3);
+    }
+    if (!valid_path(new_p) || (arrow && !valid_path(old_p))) {
+        set_msg("That file name has characters git actions cannot handle here.");
+        return;
+    }
+
+    char cmd[CMD_MAX];
+    if (unstage && arrow) {
+        snprintf(cmd, sizeof cmd, "git restore --staged -- \":/%s\" \":/%s\"", old_p, new_p);
+        run_git("git restore --staged", cmd);
+    } else if (unstage) {
+        snprintf(cmd, sizeof cmd, "git restore --staged -- \":/%s\"", new_p);
+        run_git("git restore --staged", cmd);
+    } else {
+        snprintf(cmd, sizeof cmd, "git add -- \":/%s\"", new_p);
+        run_git("git add", cmd);
+    }
+    load_status();
+}
+
+static void do_stage_all(void) {
+    run_git("git add", "git add -A");
+    load_status();
+}
+
+static void do_unstage_all(void) {
+    run_git("git reset", "git reset -q");
+    load_status();
+}
+
+/* Commits what is staged. With nothing staged it asks whether to stage everything first.
+   The message is read from a file, which avoids shell quoting problems. */
 static void do_commit(void) {
+    int stage_all = 0;
+    if (count_staged() == 0) {
+        if (nfiles == 0 && !merging) {
+            set_msg("Nothing to commit.");
+            return;
+        }
+        char ans[8] = "";
+        if (!prompt_line("Nothing staged. Stage all and commit? (y/n): ", ans, sizeof ans)) {
+            set_msg("Commit cancelled.");
+            return;
+        }
+        if (ans[0] != 'y' && ans[0] != 'Y') {
+            set_msg("Commit cancelled.");
+            return;
+        }
+        stage_all = 1;
+    }
+
     char message[COMMIT_MAX] = "";
     if (!prompt_line("Commit message: ", message, sizeof message)) {
         set_msg("Commit cancelled.");
@@ -554,8 +655,9 @@ static void do_commit(void) {
     fputs("\n", f);
     fclose(f);
 
-    if (run_git("git add", "git add -A") != 0) {
+    if (stage_all && run_git("git add", "git add -A") != 0) {
         remove(path);
+        load_status();
         return;
     }
 
@@ -662,6 +764,7 @@ static void open_pick(int merge) {
 void git_modal(void) {
     int done = 0;
     msg[0] = '\0';
+    sel = 0;
 
     set_cursor_visibility(0);
     clear_screen();
@@ -694,8 +797,13 @@ void git_modal(void) {
         switch (key) {
             case KEY_ESC:
             case KEY_ALT_G:  done = 1; break;
-            case KEY_UP:     top--; break;
-            case KEY_DOWN:   top++; break;
+            case KEY_UP:     sel--; break;
+            case KEY_DOWN:   sel++; break;
+            case ' ':        if (in_repo) do_toggle(); break;
+            case 's':
+            case 'S':        if (in_repo) do_stage_all(); break;
+            case 'u':
+            case 'U':        if (in_repo) do_unstage_all(); break;
             case 'c':
             case 'C':        if (in_repo) do_commit(); break;
             case 'p':
