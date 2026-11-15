@@ -53,8 +53,8 @@ What the editor needs to move from a DOS-style toy to something that feels curre
 
 ## Usability
 
-- ~~**Mouse support**~~ (done): click places the cursor, drag selects, Shift+click extends, wheel scrolls 3 rows, and clicks open and pick menu items. Lives in `mouse.c`; terminal reporting in `term.c`.
-  - Limits: left button only, no double-click word select. Windows console QuickEdit is turned off while the editor runs (restored on exit), so console text can't be selected by mouse.
+- ~~**Mouse support**~~ (done): click places the cursor, drag selects, Shift+click extends, double-click selects a word, wheel scrolls 3 rows, right-click opens the Edit menu, and clicks open and pick menu items. Lives in `mouse.c`; terminal reporting in `term.c`.
+  - Limits: no drag-select of words after a double-click, no right-button popup at the pointer (right-click opens the Edit dropdown in the menu bar). Windows console QuickEdit is turned off while the editor runs (restored on exit), so console text can't be selected by mouse.
 - ~~**Line numbers**~~ (done): Options > Line numbers shows dim numbers in a left gutter. The gutter is at least 3 digits and widens as the file grows. Lives in `ui.c` (`gutter_w`, `text_w`).
 - ~~**Multiple file support**~~ (done): tabs. Each open file is a tab on row 1. Command-line files each get a tab. New tab (Ctrl+N), Open (Ctrl+O; a file already open just gets its tab selected), Close Tab (Ctrl+W), next/previous tab (F6/F7 or click the tab). Undo, cursor, selection and line endings are per tab. Exit asks about each modified tab. Lives in `tabs.c`.
   - Limits: 16 tabs at most; the tab bar scrolls to keep the active tab visible but shows no overflow marker; a tab label is cut to 20 characters; two tabs can end up on the same file if you Save As onto a name open in another tab. Crash-recovery restore only offers the first tab (see Next Up 4).
@@ -70,7 +70,6 @@ What the editor needs to move from a DOS-style toy to something that feels curre
 ## Nice to Have (Polish)
 
 - **Visual block selection**: rectangular selection (Alt+Shift+arrows). Plain selection is already reverse video.
-- **Double-click word select** and **right-button menu** (see Mouse limits).
 - **Per-file syntax override**, and syntax rescans limited to the visible region for very large files.
 
 ## Current Constraints

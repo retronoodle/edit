@@ -19,6 +19,7 @@
     #include <unistd.h>
     #include <signal.h>
     #include <sys/ioctl.h>
+    #include <time.h>
 #endif
 
 #include "editor.h"
@@ -86,6 +87,16 @@ void term_get_mouse(MouseEvent *ev) {
     *ev = g_mouse;
 }
 
+unsigned long term_ticks_ms(void) {
+#ifdef _WIN32
+    return (unsigned long)GetTickCount();
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (unsigned long)ts.tv_sec * 1000UL + (unsigned long)(ts.tv_nsec / 1000000L);
+#endif
+}
+
 #ifdef _WIN32
 void gotoxy(int x, int y) {
     /* VT sequence: relative to the visible window, so it stays right if the window is scrolled */
@@ -126,7 +137,8 @@ static int pending_high = 0;   /* UTF-16 high surrogate waiting for its pair */
     #define ENABLE_EXTENDED_FLAGS 0x0080
 #endif
 
-static int g_prev_left = 0;   /* left button state at the previous mouse record */
+static int g_prev_left = 0;    /* left button state at the previous mouse record */
+static int g_prev_right = 0;   /* right button state at the previous mouse record */
 
 /* Turns a mouse record into g_mouse. Returns 1 if it is an event the editor uses
    (press, drag, release or wheel), 0 for moves with no button held. */
@@ -144,6 +156,14 @@ static int mouse_record(const MOUSE_EVENT_RECORD *m) {
     if (m->dwEventFlags & MOUSE_WHEELED) {
         short delta = (short)HIWORD(m->dwButtonState);
         g_mouse.kind = delta > 0 ? MEV_WHEEL_UP : MEV_WHEEL_DOWN;
+        return 1;
+    }
+
+    int right = (m->dwButtonState & RIGHTMOST_BUTTON_PRESSED) != 0;
+    int was_right = g_prev_right;
+    g_prev_right = right;
+    if (right && !was_right) {
+        g_mouse.kind = MEV_RIGHT_PRESS;
         return 1;
     }
 
@@ -480,7 +500,8 @@ static int read_sgr_mouse(void) {
     else if (base == 65) g_mouse.kind = MEV_WHEEL_DOWN;
     else if (base == 32) g_mouse.kind = MEV_DRAG;           /* left button held while moving */
     else if (base == 0) g_mouse.kind = (term == 'M') ? MEV_PRESS : MEV_RELEASE;
-    else return -1;                                           /* other buttons are ignored */
+    else if (base == 2 && term == 'M') g_mouse.kind = MEV_RIGHT_PRESS;   /* right button press only */
+    else return -1;                                           /* other buttons and releases are ignored */
     return KEY_MOUSE;
 }
 

@@ -1,4 +1,5 @@
 /* Mouse input: maps screen cells to text positions and drives the menus. */
+#include <ctype.h>
 #include <string.h>
 
 #include "editor.h"
@@ -14,6 +15,15 @@
 
 /* True while a left-button drag that started in the text area is in progress. */
 static int dragging = 0;
+
+/* A second left press on the same cell within this time selects the word. */
+#define DOUBLE_CLICK_MS 400
+#define MENU_EDIT 1          /* index of Edit in menus[] (File, Edit, Search, Options) */
+
+/* The last plain left press in the text area, for double-click detection. */
+static int click_pending = 0;
+static unsigned long last_click_ms = 0;
+static int last_click_x = 0, last_click_y = 0;
 
 /* Text rows are TEXT_TOP .. screen_h-3. Row 0 is the menu bar, TAB_ROW the tab bar;
    the last two are the message and status rows. */
@@ -51,6 +61,30 @@ static void cursor_to_cell(int x, int y) {
     Line *ln = &editor.lines[line];
     editor.cursor_y = line;
     editor.cursor_x = utf8_byte_at_col(ln->text, ln->len, editor.scroll_x + tx);
+}
+
+/* Selects the word under the cursor. Words are runs of letters, digits, '_' and
+   non-ASCII bytes; spaces and other punctuation form their own runs. Every byte of
+   a multi-byte UTF-8 character is in the word class, so a character is never split. */
+static int word_class(unsigned char c) {
+    if (isalnum(c) || c == '_' || c >= 0x80) return 0;
+    if (c == ' ' || c == '\t') return 1;
+    return 2;
+}
+
+static void select_word_at_cursor(void) {
+    Line *ln = &editor.lines[editor.cursor_y];
+    if (editor.cursor_x >= ln->len) return;   /* past the end: nothing to select */
+
+    int cls = word_class((unsigned char)ln->text[editor.cursor_x]);
+    int start = editor.cursor_x, end = editor.cursor_x;
+    while (start > 0 && word_class((unsigned char)ln->text[start - 1]) == cls) start--;
+    while (end < ln->len && word_class((unsigned char)ln->text[end]) == cls) end++;
+
+    sel_clear();
+    editor.cursor_x = start;
+    sel_extend();                 /* anchor at the start of the word */
+    editor.cursor_x = end;
 }
 
 /* Scrolls the view by rows (negative is up). The cursor keeps its column and
@@ -126,6 +160,22 @@ static int menu_click(const MouseEvent *ev) {
 }
 
 int mouse_handle(const MouseEvent *ev) {
+    /* Right-click opens the Edit menu; right-click with a menu open just closes it */
+    if (ev->kind == MEV_RIGHT_PRESS) {
+        dragging = 0;
+        click_pending = 0;
+        if (editor.menu_active) {
+            editor.menu_active = 0;
+            editor.dropdown_open = 0;
+        } else {
+            editor.menu_active = 1;
+            editor.selected_menu = MENU_EDIT;
+            editor.selected_item = 0;
+            editor.dropdown_open = 1;
+        }
+        return ACT_NONE;
+    }
+
     /* Clicks on the menu bar, and any click while a menu is open, go to the menus */
     if (ev->kind == MEV_PRESS && (editor.menu_active || ev->y == 0)) {
         dragging = 0;
@@ -145,6 +195,25 @@ int mouse_handle(const MouseEvent *ev) {
     switch (ev->kind) {
         case MEV_PRESS:
             if (ev->y < TEXT_TOP || ev->y > text_bottom()) return ACT_NONE;   /* message or status row */
+            {
+                unsigned long now = term_ticks_ms();
+                int dbl = click_pending && !ev->shift
+                       && now - last_click_ms <= DOUBLE_CLICK_MS
+                       && ev->x == last_click_x && ev->y == last_click_y;
+                /* A double-click ends the run, so a third click starts over */
+                click_pending = !ev->shift && !dbl;
+                last_click_ms = now;
+                last_click_x = ev->x;
+                last_click_y = ev->y;
+
+                if (dbl) {
+                    sel_clear();
+                    cursor_to_cell(ev->x, ev->y);
+                    select_word_at_cursor();
+                    dragging = 0;            /* a drag would drop the word selection */
+                    break;
+                }
+            }
             if (ev->shift) sel_extend();     /* Shift+click extends from the old cursor */
             else sel_clear();
             cursor_to_cell(ev->x, ev->y);
@@ -160,6 +229,9 @@ int mouse_handle(const MouseEvent *ev) {
         case MEV_RELEASE:
             dragging = 0;
             break;
+
+        case MEV_RIGHT_PRESS:
+            break;                           /* handled at the top */
 
         case MEV_WHEEL_UP:
             scroll_by(-3);
