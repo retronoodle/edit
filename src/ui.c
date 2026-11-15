@@ -594,7 +594,7 @@ void show_help(void) {
     printf("  Alt+O           - Open Options menu\n");
     printf("  Arrow Keys      - Navigate menus\n");
     printf("  Enter           - Select menu item\n");
-    printf("  N/O/S/A/E/W/T/V/X - Pick File menu item (New/Open/Save/Save As/Recent/Close Tab/Next/Previous/Exit)\n");
+    printf("  N/O/S/A/E/Q/W/T/V/X - Pick File menu item (New/Open/Save/Save As/Recent/Quick Open/Close Tab/Next/Previous/Exit)\n");
     printf("  F/N/R/G         - Pick Search menu item (Find/Find Next/Replace/Go to Line)\n");
     printf("  U/R/X/C/P/A/I/E - Pick Edit menu item (Undo/Redo/Cut/Copy/Paste/Select All/Ask AI/Explain)\n");
     printf("  T/L/C/N/Y/W/A   - Options: tab width / line endings / colors / line numbers / syntax / word wrap / AI setup (menu stays open)\n");
@@ -605,6 +605,7 @@ void show_help(void) {
     printf("  Ctrl+N          - New tab\n");
     printf("  Ctrl+O          - Open file (in a new tab)\n");
     printf("  Ctrl+E          - Recent files (open one in a new tab)\n");
+    printf("  Ctrl+P          - Quick open (type part of a file name, searches all folders)\n");
     printf("  Ctrl+S          - Save file\n");
     printf("  Ctrl+W          - Close tab\n");
     printf("  F6 / F7         - Next / previous tab (or click a tab)\n");
