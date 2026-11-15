@@ -42,6 +42,7 @@ static int write_file(const char *name) {
     }
     fclose(file);
     editor.modified = 0;
+    undo_mark_saved();
     recovery_discard_name(name);   /* the backup is stale now that the file is saved */
     watch_record();                /* our own write is not an outside change */
 

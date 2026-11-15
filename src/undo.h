@@ -51,7 +51,15 @@ typedef struct {
     OpList undo;
     OpList redo;
     int break_next;
+    int save_pos;    /* undo depth at the last save */
+    int save_lost;   /* 1 = the save point can no longer be reached */
 } UndoState;
+
+/* Save point: call after a successful save (or when restoring unsaved text
+   from a backup, where the text must never count as clean). The modified
+   flag is then derived from undo depth on every undo/redo. */
+void undo_mark_saved(void);
+void undo_mark_unsaved(void);
 
 void undo_take(UndoState *s);
 void undo_put(UndoState *s);

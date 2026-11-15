@@ -12,6 +12,7 @@
 #include "options.h"
 #include "files.h"
 #include "tabs.h"
+#include "undo.h"
 #include "recovery.h"
 
 #define BACKUP_INTERVAL 30      /* seconds between backups while changes are unsaved */
@@ -100,6 +101,7 @@ static int offer_restore(void) {
             load_stream(in);
             fclose(in);
             editor.modified = 1;
+            undo_mark_unsaved();
             return 1;
         }
         if (c == 'n' || c == 'N') {

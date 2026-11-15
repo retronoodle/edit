@@ -17,6 +17,8 @@ static int break_next = 1;   /* next record starts a new undo step */
 static int next_group = 1;
 static int in_compound = 0;      /* between undo_begin_group and undo_end_group */
 static int compound_group = 0;   /* group id shared by every op in the compound step */
+static int save_pos = 0;         /* undo depth when the file was last saved */
+static int save_lost = 0;        /* 1 = that depth was dropped (new edit after undo) */
 
 static void die_oom(void) {
     fprintf(stderr, "velo: out of memory\n");
@@ -92,9 +94,21 @@ static void op_prepend(UndoOp *op, const char *s, int n) {
     op->len += n;
 }
 
-/* Any new edit invalidates the redo history. */
+/* Any new edit invalidates the redo history. If the save point was in that
+   history, it is gone for good: a later edit must not match it by depth. */
 static void new_edit(void) {
+    if (save_pos > undo_list.count) save_lost = 1;
     list_clear(&redo_list);
+}
+
+void undo_mark_saved(void) {
+    save_pos = undo_list.count;
+    save_lost = 0;
+    break_next = 1;   /* the next keystroke must not merge into the saved op */
+}
+
+void undo_mark_unsaved(void) {
+    save_lost = 1;
 }
 
 /* Group id for a new op: the compound group if one is open, else a fresh one. */
@@ -199,7 +213,7 @@ static void cursor_after(const UndoOp *op, int *cx, int *cy) {
 static void finish_step(int cx, int cy) {
     editor.cursor_x = cx;
     editor.cursor_y = cy;
-    editor.modified = 1;
+    editor.modified = save_lost || undo_list.count != save_pos;
     break_next = 1;
     adjust_scroll();
 }
@@ -245,6 +259,8 @@ void undo_clear(void) {
     list_clear(&undo_list);
     list_clear(&redo_list);
     break_next = 1;
+    save_pos = 0;    /* a fresh or reloaded document is clean at depth 0 */
+    save_lost = 0;
 }
 
 /* ---- Per-tab state ---- */
@@ -253,6 +269,8 @@ void undo_take(UndoState *s) {
     s->undo = undo_list;
     s->redo = redo_list;
     s->break_next = break_next;
+    s->save_pos = save_pos;
+    s->save_lost = save_lost;
     undo_list.ops = redo_list.ops = NULL;
     undo_list.count = undo_list.cap = 0;
     redo_list.count = redo_list.cap = 0;
@@ -264,6 +282,8 @@ void undo_put(UndoState *s) {
     undo_list = s->undo;
     redo_list = s->redo;
     break_next = s->break_next;
+    save_pos = s->save_pos;
+    save_lost = s->save_lost;
     memset(s, 0, sizeof *s);
     s->break_next = 1;
 }
