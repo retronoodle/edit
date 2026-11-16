@@ -22,6 +22,7 @@
 #include "options.h"
 #include "aiask.h"
 #include "viewer.h"
+#include "syntax.h"
 #include "gitmodal.h"
 
 #define MSG_MAX 256
@@ -687,7 +688,7 @@ static void do_file_diff(void) {
         set_msg("Diff is too large; showing the start.");
     }
 
-    view_text(path, text);
+    view_diff(path, text, options.syntax ? syntax_lang_for(path) : SYN_PLAIN);
     free(text);
     clear_screen();
 }
