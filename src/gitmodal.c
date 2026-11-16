@@ -24,16 +24,26 @@
 #include "viewer.h"
 #include "syntax.h"
 #include "gitmodal.h"
+#include "diffcap.h"
+#include "files.h"
+#include "buffer.h"
+#include "undo.h"
+#include "watch.h"
 
 #define MSG_MAX 256
 #define CMD_MAX 1536   /* room for a full temp path inside the git commit command */
 #define COMMIT_MAX 256
-#define DIFF_MAX 20000   /* diff bytes sent to the AI for a commit draft */
+#define DIFF_MAX 30000   /* diff bytes sent to the AI for a commit draft */
+#define SUMMARY_MAX 4096   /* file list bytes sent to the AI ahead of the diff */
+#define COMMIT_BODY_MAX 4096   /* longest drafted message kept from the AI */
 #define VIEW_DIFF_MAX 200000   /* diff bytes shown in the viewer (Enter / click on a file) */
 
 static const char COMMIT_SYSTEM[] =
-    "Write a git commit message for this diff. One line, imperative mood, max 72 characters. "
-    "No quotes, no prefix, no trailing period. Output only the message.";
+    "Write a git commit message for the changes below: a file list, then the diff (which may be "
+    "cut short, but every file is in the list). Format: a subject line in imperative mood, max 72 "
+    "characters, no prefix, no trailing period; then a blank line; then one '- ' bullet per "
+    "distinct change, each under 72 characters, covering every file in the list. No quotes, no "
+    "code fences. Output only the message.";
 #define NAME_MAX_LEN 128   /* longest branch name we accept */
 
 static char *text_buf = NULL;   /* git status output; header and files point into it */
@@ -46,6 +56,8 @@ static int merging = 0;          /* a merge is stopped (MERGE_HEAD exists) */
 static int top = 0;             /* first visible file row */
 static int sel = 0;             /* highlighted file (Up/Down move it, Space stages it) */
 static char msg[MSG_MAX];       /* result of the last action, or a git error */
+static int draft_pending = 0;   /* a drafted message is open in a tab (draft_path), not committed yet */
+static char draft_path[1024];   /* git's COMMIT_EDITMSG under the git dir, where the draft is saved */
 
 /* Output panel: the last git action, replaced by each new one. */
 #define OUT_ROWS 4        /* header line + 3 tail lines of output */
@@ -704,9 +716,10 @@ static void do_unstage_all(void) {
 }
 
 /* Commits what is staged. With nothing staged it asks whether to stage everything first.
-   draft (may be NULL) is an AI message that the commit prompt starts with, for editing.
-   The message is read from a file, which avoids shell quoting problems. */
-static void do_commit_with(const char *draft) {
+   from_file (may be NULL) is a saved message file to commit with (the drafted message);
+   otherwise the user types the message. The message is read from a file, which avoids
+   shell quoting problems. */
+static void do_commit_with(const char *from_file) {
     int stage_all = 0;
     if (count_staged() == 0) {
         if (nfiles == 0 && !merging) {
@@ -725,97 +738,219 @@ static void do_commit_with(const char *draft) {
         stage_all = 1;
     }
 
-    char message[COMMIT_MAX] = "";
-    if (draft) snprintf(message, sizeof message, "%s", draft);
-    int ok = draft ? prompt_line_prefill("Commit message: ", message, sizeof message)
-                   : prompt_line("Commit message: ", message, sizeof message);
-    if (!ok) {
-        set_msg("Commit cancelled.");
-        return;
-    }
-
-    /* git reads the message from a file, which avoids shell quoting problems. */
-    const char *dir = getenv("TEMP");
-    if (!dir) dir = getenv("TMPDIR");
-    if (!dir) dir = "/tmp";
     char path[1024];
-    snprintf(path, sizeof path, "%s/edit_commit_msg.txt", dir);
+    int temp = 0;   /* our own temp file, removed after use; a saved draft is kept */
+    if (from_file) {
+        snprintf(path, sizeof path, "%s", from_file);
+    } else {
+        char message[COMMIT_MAX] = "";
+        if (!prompt_line("Commit message: ", message, sizeof message)) {
+            set_msg("Commit cancelled.");
+            return;
+        }
 
-    FILE *f = fopen(path, "wb");
-    if (!f) {
-        set_msg("Could not write the commit message file.");
-        return;
+        /* git reads the message from a file, which avoids shell quoting problems. */
+        const char *dir = getenv("TEMP");
+        if (!dir) dir = getenv("TMPDIR");
+        if (!dir) dir = "/tmp";
+        snprintf(path, sizeof path, "%s/edit_commit_msg.txt", dir);
+
+        FILE *f = fopen(path, "wb");
+        if (!f) {
+            set_msg("Could not write the commit message file.");
+            return;
+        }
+        fputs(message, f);
+        fputs("\n", f);
+        fclose(f);
+        temp = 1;
     }
-    fputs(message, f);
-    fputs("\n", f);
-    fclose(f);
 
     if (stage_all && run_git("git add", "git add -A") != 0) {
-        remove(path);
+        if (temp) remove(path);
         load_status();
         return;
     }
 
     char cmd[CMD_MAX];
     snprintf(cmd, sizeof cmd, "git commit -F \"%s\"", path);
-    run_git("git commit", cmd);
-    remove(path);
+    int committed = run_git("git commit", cmd) == 0;
+    if (temp) remove(path);
+    if (committed) draft_pending = 0;
     load_status();
 }
 
-static void do_commit(void) { do_commit_with(NULL); }
+/* C: commits with the drafted message when one is open in a tab (after saving it), else asks
+   for a message. Answering n to the draft question falls back to typing a message. */
+static void do_commit(void) {
+    if (draft_pending) {
+        int i = tab_find(draft_path);
+        if (i >= 0 && tab_doc(i)->modified) {
+            set_msg("Save the draft tab first (Ctrl+S).");
+            return;
+        }
+        char ans[8] = "";
+        if (!prompt_line("Commit with the drafted message? (y/n): ", ans, sizeof ans)) {
+            set_msg("Commit cancelled.");
+            return;
+        }
+        if (ans[0] == 'y' || ans[0] == 'Y') {
+            do_commit_with(draft_path);
+            return;
+        }
+        draft_pending = 0;
+    }
+    do_commit_with(NULL);
+}
 
-/* Gets the diff for a commit draft: the staged changes when something is staged,
-   otherwise the working tree against HEAD. Capped at DIFF_MAX bytes on a line boundary.
+/* 1 if s is empty or only whitespace (or NULL). */
+static int is_blank(const char *s) {
+    if (!s) return 1;
+    while (*s && isspace((unsigned char)*s)) s++;
+    return *s == '\0';
+}
+
+/* Appends s to *buf, which grows as needed. 0 when out of memory. */
+static int cat_str(char **buf, size_t *len, const char *s) {
+    size_t add = strlen(s);
+    char *nb = realloc(*buf, *len + add + 1);
+    if (!nb) return 0;
+    memcpy(nb + *len, s, add + 1);
+    *buf = nb;
+    *len += add;
+    return 1;
+}
+
+/* Trims surrounding whitespace in place. */
+static void trim_ws(char *s) {
+    char *p = s;
+    while (*p && isspace((unsigned char)*p)) p++;
+    memmove(s, p, strlen(p) + 1);
+    size_t n = strlen(s);
+    while (n > 0 && isspace((unsigned char)s[n - 1])) s[--n] = '\0';
+}
+
+/* Gets what a commit draft reads: a file list (git's stat, plus untracked files when nothing
+   is staged, since git diff never shows them), then the diff. The staged changes when something
+   is staged, otherwise the working tree against HEAD. Each part is capped (diffcap.c), so every
+   file keeps at least its first lines.
    Returns 0 with *out set (malloc'd, caller frees), or -1 with msg set. */
 static int get_diff(char **out) {
-    char *text = NULL;
-    int rc;
-    if (count_staged() > 0) {
+    int staged = count_staged() > 0;
+    char *text = NULL, *stat = NULL, *summary = NULL, *capped = NULL, *trimmed = NULL, *input = NULL;
+    size_t slen = 0;
+    int rc, ok = 1;
+
+    if (staged) {
         rc = run_cmd("git diff --cached", &text);
+        if (rc == 0) run_cmd("git diff --cached --stat", &stat);
     } else {
         rc = run_cmd("git diff HEAD", &text);
         if (rc != 0) {   /* no commits yet: HEAD does not exist */
             free(text);
             text = NULL;
             rc = run_cmd("git diff", &text);
+            if (rc == 0) run_cmd("git diff --stat", &stat);
+        } else {
+            run_cmd("git diff HEAD --stat", &stat);
         }
     }
     if (rc != 0 || !text) {
         free(text);
+        free(stat);
         set_msg("Could not read the diff.");
         return -1;
     }
 
-    const char *p = text;
-    while (*p && isspace((unsigned char)*p)) p++;
-    if (!*p) {
-        free(text);
-        set_msg("Nothing to draft.");
-        return -1;
+    if (stat) ok = cat_str(&summary, &slen, stat);
+    if (ok && !staged) {
+        for (int i = 0; ok && i < nfiles; i++) {
+            if (file_kind(files[i]) != FS_UNTRACKED) continue;
+            ok = cat_str(&summary, &slen, "new file (untracked): ") &&
+                 cat_str(&summary, &slen, files[i] + 3) &&
+                 cat_str(&summary, &slen, "\n");
+        }
     }
 
-    size_t n = strlen(text);
-    if (n > DIFF_MAX) {
-        size_t cut = DIFF_MAX;
-        while (cut > 0 && text[cut - 1] != '\n') cut--;
-        if (cut == 0) cut = DIFF_MAX;
-        char *capped = malloc(cut + 32);
-        if (!capped) {
-            free(text);
+    if (is_blank(text) && is_blank(summary)) {
+        free(text);
+        free(stat);
+        free(summary);
+        if (!merging) {
+            set_msg("Nothing to draft.");
+            return -1;
+        }
+        /* A stopped merge can have no changes listed; say so rather than refusing */
+        input = malloc(64);
+        if (!input) {
             set_msg("Out of memory.");
             return -1;
         }
-        memcpy(capped, text, cut);
-        strcpy(capped + cut, "[diff truncated]\n");
-        free(text);
-        text = capped;
+        snprintf(input, 64, "A merge is in progress with no file changes listed.\n");
+        *out = input;
+        return 0;
     }
-    *out = text;
+
+    capped = diffcap_head(summary ? summary : "", SUMMARY_MAX, "[... more files not listed]\n");
+    trimmed = diffcap_trim(text, DIFF_MAX);
+    if (!capped || !trimmed) ok = 0;
+    if (ok) {
+        size_t total = strlen(capped) + strlen(trimmed) + 2;
+        input = malloc(total);
+        if (input) snprintf(input, total, "%s\n%s", capped, trimmed);
+    }
+
+    free(text);
+    free(stat);
+    free(summary);
+    free(capped);
+    free(trimmed);
+    if (!input) {
+        set_msg("Out of memory.");
+        return -1;
+    }
+    *out = input;
     return 0;
 }
 
-/* Drafts a commit message with the AI (D), then opens the commit prompt with it for editing. */
+/* Turns an AI reply into a commit message: LF only, no surrounding whitespace, code fences or
+   quotes, capped at COMMIT_BODY_MAX. Malloc'd (NULL when out of memory); "" when nothing is left. */
+static char *tidy_draft(const char *reply) {
+    size_t n = strlen(reply);
+    char *s = malloc(n + 1);
+    if (!s) return NULL;
+    size_t k = 0;
+    for (size_t i = 0; i < n; i++) if (reply[i] != '\r') s[k++] = reply[i];
+    s[k] = '\0';
+    trim_ws(s);
+
+    int fenced = strncmp(s, "```", 3) == 0;
+    if (fenced) {   /* drop the opening fence line and a closing fence */
+        char *nl = strchr(s, '\n');
+        if (nl) memmove(s, nl + 1, strlen(nl + 1) + 1);
+        else s[0] = '\0';
+        trim_ws(s);
+        n = strlen(s);
+        if (n >= 3 && strcmp(s + n - 3, "```") == 0) {
+            s[n - 3] = '\0';
+            trim_ws(s);
+        }
+    }
+
+    n = strlen(s);
+    if (n >= 2 && strchr("\"'`", s[0]) && s[n - 1] == s[0]) {
+        memmove(s, s + 1, n - 2);
+        s[n - 2] = '\0';
+        trim_ws(s);
+    }
+
+    char *capped = diffcap_head(s, COMMIT_BODY_MAX, "");
+    free(s);
+    return capped;
+}
+
+/* Drafts a commit message with the AI (D) and opens it in a tab as git's COMMIT_EDITMSG
+   (under the git dir). Save the tab, then C commits with it. */
 static void do_draft_commit(void) {
     if (nfiles == 0 && !merging) {
         set_msg("Nothing to draft.");
@@ -836,30 +971,66 @@ static void do_draft_commit(void) {
         return;
     }
 
-    /* First line only, without surrounding whitespace, quotes or backticks. */
-    char draft[COMMIT_MAX];
-    const char *s = reply;
-    while (*s && isspace((unsigned char)*s)) s++;
-    size_t i = 0;
-    while (s[i] && s[i] != '\n' && i < sizeof draft - 1) {
-        draft[i] = s[i];
-        i++;
-    }
-    draft[i] = '\0';
+    char *draft = tidy_draft(reply);
     free(reply);
-    while (i > 0 && isspace((unsigned char)draft[i - 1])) draft[--i] = '\0';
-    if (i >= 2 && strchr("\"'`", draft[0]) && draft[i - 1] == draft[0]) {
-        memmove(draft, draft + 1, i - 2);
-        i -= 2;
-        draft[i] = '\0';
+    if (!draft) {
+        set_msg("Out of memory.");
+        return;
     }
     if (draft[0] == '\0') {
+        free(draft);
         set_msg("The AI returned an empty message.");
         return;
     }
 
-    msg[0] = '\0';
-    do_commit_with(draft);
+    char *gd = NULL;
+    if (run_cmd("git rev-parse --absolute-git-dir", &gd) != 0 || !gd) {
+        free(gd);
+        free(draft);
+        set_msg("Could not find the git dir.");
+        return;
+    }
+    trim_ws(gd);
+    snprintf(draft_path, sizeof draft_path, "%s/COMMIT_EDITMSG", gd);
+    free(gd);
+
+    /* A draft that is open with unsaved edits is not overwritten */
+    int i = tab_find(draft_path);
+    if (i >= 0 && tab_doc(i)->modified) {
+        free(draft);
+        set_msg("Save or close the open COMMIT_EDITMSG tab first.");
+        return;
+    }
+
+    FILE *f = fopen(draft_path, "wb");
+    if (!f) {
+        free(draft);
+        set_msg("Could not write the commit message file.");
+        return;
+    }
+    fputs(draft, f);
+    fputs("\n", f);
+    fclose(f);
+    free(draft);
+
+    if (i >= 0) {   /* already open and clean: reload it from the file */
+        tab_switch(i);
+        reset_document();
+        FILE *in = fopen(draft_path, "rb");
+        if (in) {
+            load_stream(in);
+            fclose(in);
+        }
+        undo_clear();
+        editor.modified = 0;
+        watch_record();
+    } else if (!open_path(draft_path, 1)) {
+        set_msg("Could not open the draft.");
+        return;
+    }
+
+    draft_pending = 1;
+    set_msg("Draft opened in a tab. Save it (Ctrl+S), then C to commit.");
 }
 
 /* Pushes. Prompts are switched off so a missing login fails instead of hanging.
