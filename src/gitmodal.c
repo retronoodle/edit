@@ -32,10 +32,8 @@
 #include "gitmodal.h"
 #include "diffcap.h"
 #include "gitpush.h"
-#include "files.h"
-#include "buffer.h"
-#include "undo.h"
-#include "watch.h"
+#include "msgedit.h"
+#include "utf8.h"
 
 #define MSG_MAX 256
 #define CMD_MAX 1536   /* room for a full temp path inside the git commit command */
@@ -63,8 +61,23 @@ static int merging = 0;          /* a merge is stopped (MERGE_HEAD exists) */
 static int top = 0;             /* first visible file row */
 static int sel = 0;             /* highlighted file (Up/Down move it, Space stages it) */
 static char msg[MSG_MAX];       /* result of the last action, or a git error */
-static int draft_pending = 0;   /* a drafted message is open in a tab (draft_path), not committed yet */
-static char draft_path[1024];   /* git's COMMIT_EDITMSG under the git dir, where the draft is saved */
+/* Commit message box (D drafts into it, Ctrl+S commits, Esc hides it). The draft is kept
+   until it is committed or the panel closes. */
+#define BOX_TEXT 5        /* most text rows the box shows */
+#define BOX_MIN_LIST 2    /* file rows kept on screen while the box is open */
+static MsgEdit cmsg;
+static int box_open = 0;
+static int dtop = 0, dleft = 0;   /* box scroll: first line, first display column */
+
+/* Text rows of the box, fewer on short screens so the file list keeps BOX_MIN_LIST rows. */
+static int box_text_rows(void) {
+    int r = screen_h - 3 - BOX_MIN_LIST - 1;
+    if (r > BOX_TEXT) r = BOX_TEXT;
+    return r < 1 ? 1 : r;
+}
+
+/* Screen rows the box takes: a header plus its text rows (0 when hidden). */
+static int box_rows(void) { return box_open ? 1 + box_text_rows() : 0; }
 
 /* Output panel: the last git action, replaced by each new one. */
 #define OUT_ROWS 4        /* header line + 3 tail lines of output */
@@ -75,7 +88,7 @@ static char out_label[32] = "";  /* e.g. "git push" */
 static int out_rc = 0;
 static char *out_text = NULL;    /* full output of that action (malloc'd) */
 
-static int out_shown(void) { return screen_h >= OUT_MIN_H; }
+static int out_shown(void) { return screen_h >= OUT_MIN_H && !box_open; }
 
 /* Branch list (B = switch, M = merge). */
 static int picking = 0;          /* 1 = the branch list is showing */
@@ -110,7 +123,7 @@ static void msg_from_output(const char *text, int want_last) {
 
 static int list_rows(void) {
     /* rows 1 ..; then the output panel (if shown), message and footer rows */
-    int r = screen_h - 3 - (out_shown() ? OUT_ROWS : 0);
+    int r = screen_h - 3 - box_rows() - (out_shown() ? OUT_ROWS : 0);
     return r < 1 ? 1 : r;
 }
 
@@ -418,6 +431,86 @@ static void put_row(int y, const char *sgr, const char *text) {
     fb_puts(options_base_sgr());
 }
 
+static int have_draft(void) { return cmsg.len > 0; }
+
+static void clear_draft(void) {
+    msgedit_clear(&cmsg);
+    box_open = 0;
+    dtop = 0;
+    dleft = 0;
+}
+
+/* Scrolls the box so the cursor stays visible. */
+static void box_clamp(void) {
+    int cl, cc;
+    msgedit_cursor(&cmsg, &cl, &cc);
+    int th = box_text_rows();
+    int w = screen_w - 1;
+    if (w < 1) w = 1;
+    if (cl < dtop) dtop = cl;
+    if (cl >= dtop + th) dtop = cl - th + 1;
+    if (cc < dleft) dleft = cc;
+    if (cc >= dleft + w) dleft = cc - w + 1;
+    if (dtop < 0) dtop = 0;
+    if (dleft < 0) dleft = 0;
+}
+
+/* One text row of the box: the part of the line visible from column dleft. cb is the cursor's
+   byte offset in the line when it is on this row, else -1; the cursor is a reversed cell. */
+static void box_row(int y, const char *lt, int len, int cb) {
+    int w = screen_w - 1;
+    if (w < 0) w = 0;
+    int b0 = utf8_byte_at_col(lt, len, dleft);
+    int b1 = b0 + utf8_byte_at_col(lt + b0, len - b0, w);
+    int cells = utf8_width(lt + b0, b1 - b0);
+
+    fb_gotoxy(0, y);
+    fb_puts(options_base_sgr());
+    if (cb >= b0 && cb < b1) {              /* cursor on a character */
+        int nx = utf8_next(lt, len, cb);
+        fb_write(lt + b0, cb - b0);
+        fb_puts(options_chrome_sgr(CH_BAR));
+        fb_write(lt + cb, nx - cb);
+        fb_puts(options_base_sgr());
+        fb_write(lt + nx, b1 - nx);
+    } else if (cb == b1) {                  /* cursor after the last visible character */
+        fb_write(lt + b0, b1 - b0);
+        fb_puts(options_chrome_sgr(CH_BAR));
+        fb_write(" ", 1);
+        fb_puts(options_base_sgr());
+        cells++;
+    } else {
+        fb_write(lt + b0, b1 - b0);
+    }
+    for (int i = cells; i < w; i++) fb_write(" ", 1);
+    fb_puts(options_base_sgr());
+}
+
+/* The box: a header row, then its text rows just above the message row. */
+static void draw_box(void) {
+    if (!box_open) return;
+    box_clamp();
+    int top = 1 + list_rows();
+    int th = box_text_rows();
+    int nl = msgedit_nlines(&cmsg);
+    char head[80];
+    snprintf(head, sizeof head, "  Commit message, %d line%s", nl, nl == 1 ? "" : "s");
+    put_row(top, options_chrome_sgr(CH_BAR), head);
+
+    int cl, cc;
+    msgedit_cursor(&cmsg, &cl, &cc);
+    for (int r = 0; r < th; r++) {
+        int line = dtop + r;
+        int start, len;
+        if (msgedit_line(&cmsg, line, &start, &len)) {
+            int here = (line == cl) ? cmsg.cur - start : -1;
+            box_row(top + 1 + r, cmsg.text + start, len, here);
+        } else {
+            box_row(top + 1 + r, "", 0, -1);
+        }
+    }
+}
+
 static void draw(void) {
     char title[600];
     char line[700];
@@ -453,6 +546,7 @@ static void draw(void) {
         put_row(1 + i, sgr, t);
     }
 
+    draw_box();
     draw_panel();
 
     char sum[160] = "";
@@ -470,7 +564,8 @@ static void draw(void) {
     put_row(screen_h - 2, options_base_sgr(), note);
 
     const char *foot;
-    if (!in_repo) foot = " Esc Close";
+    if (box_open) foot = " Type to edit  Ctrl+S Commit  Esc Hide (keeps draft)";
+    else if (!in_repo) foot = " Esc Close";
     else if (merging) foot = " Space Stage  Enter Diff  S/U All  C Commit  D Draft  A Abort merge  R Refresh  Esc Close";
     else foot = " Space Stage  Enter Diff  S/U All  C Commit  D Draft  P Push  B Branch  M Merge  R Refresh  Esc Close";
     put_row(screen_h - 1, options_chrome_sgr(CH_STATUS), foot);
@@ -803,10 +898,9 @@ static void do_unstage_all(void) {
 }
 
 /* Commits what is staged. With nothing staged it asks whether to stage everything first.
-   from_file (may be NULL) is a saved message file to commit with (the drafted message);
-   otherwise the user types the message. The message is read from a file, which avoids
-   shell quoting problems. */
-static void do_commit_with(const char *from_file) {
+   text (may be NULL) is the message; NULL asks for one on a line. The message goes through a
+   temp file, which avoids shell quoting problems. A commit clears the draft; a failure keeps it. */
+static void do_commit_with(const char *text) {
     int stage_all = 0;
     if (count_staged() == 0) {
         if (nfiles == 0 && !merging) {
@@ -825,36 +919,33 @@ static void do_commit_with(const char *from_file) {
         stage_all = 1;
     }
 
-    char path[1024];
-    int temp = 0;   /* our own temp file, removed after use; a saved draft is kept */
-    if (from_file) {
-        snprintf(path, sizeof path, "%s", from_file);
-    } else {
-        char message[COMMIT_MAX] = "";
+    char message[COMMIT_MAX] = "";
+    if (!text) {
         if (!prompt_line("Commit message: ", message, sizeof message)) {
             set_msg("Commit cancelled.");
             return;
         }
-
-        /* git reads the message from a file, which avoids shell quoting problems. */
-        const char *dir = getenv("TEMP");
-        if (!dir) dir = getenv("TMPDIR");
-        if (!dir) dir = "/tmp";
-        snprintf(path, sizeof path, "%s/edit_commit_msg.txt", dir);
-
-        FILE *f = fopen(path, "wb");
-        if (!f) {
-            set_msg("Could not write the commit message file.");
-            return;
-        }
-        fputs(message, f);
-        fputs("\n", f);
-        fclose(f);
-        temp = 1;
+        text = message;
     }
 
+    /* git reads the message from a file, which avoids shell quoting problems. */
+    const char *dir = getenv("TEMP");
+    if (!dir) dir = getenv("TMPDIR");
+    if (!dir) dir = "/tmp";
+    char path[1024];
+    snprintf(path, sizeof path, "%s/edit_commit_msg.txt", dir);
+
+    FILE *f = fopen(path, "wb");
+    if (!f) {
+        set_msg("Could not write the commit message file.");
+        return;
+    }
+    fputs(text, f);
+    fputs("\n", f);
+    fclose(f);
+
     if (stage_all && run_git("git add", "git add -A") != 0) {
-        if (temp) remove(path);
+        remove(path);
         load_status();
         return;
     }
@@ -862,30 +953,43 @@ static void do_commit_with(const char *from_file) {
     char cmd[CMD_MAX];
     snprintf(cmd, sizeof cmd, "git commit -F \"%s\"", path);
     int committed = run_git("git commit", cmd) == 0;
-    if (temp) remove(path);
-    if (committed) draft_pending = 0;
+    remove(path);
+    if (committed) clear_draft();   /* text may point into cmsg, which is not used after this */
     load_status();
 }
 
-/* C: commits with the drafted message when one is open in a tab (after saving it), else asks
-   for a message. Answering n to the draft question falls back to typing a message. */
+/* 1 when the draft has no text but whitespace. */
+static int draft_blank(void) {
+    for (int i = 0; i < cmsg.len; i++) {
+        if (!isspace((unsigned char)cmsg.text[i])) return 0;
+    }
+    return 1;
+}
+
+/* Commits the draft (Ctrl+S in the box). The box closes so git's result shows in the panel. */
+static void commit_draft(void) {
+    box_open = 0;
+    if (draft_blank()) {
+        set_msg("Commit message is empty.");
+        return;
+    }
+    do_commit_with(cmsg.text);
+}
+
+/* C: commits the draft when there is one (after a y), else asks for a message.
+   Answering n drops the draft and asks for a message instead. */
 static void do_commit(void) {
-    if (draft_pending) {
-        int i = tab_find(draft_path);
-        if (i >= 0 && tab_doc(i)->modified) {
-            set_msg("Save the draft tab first (Ctrl+S).");
-            return;
-        }
+    if (have_draft()) {
         char ans[8] = "";
         if (!prompt_line("Commit with the drafted message? (y/n): ", ans, sizeof ans)) {
             set_msg("Commit cancelled.");
             return;
         }
         if (ans[0] == 'y' || ans[0] == 'Y') {
-            do_commit_with(draft_path);
+            commit_draft();
             return;
         }
-        draft_pending = 0;
+        clear_draft();
     }
     do_commit_with(NULL);
 }
@@ -1036,8 +1140,7 @@ static char *tidy_draft(const char *reply) {
     return capped;
 }
 
-/* Drafts a commit message with the AI (D) and opens it in a tab as git's COMMIT_EDITMSG
-   (under the git dir). Save the tab, then C commits with it. */
+/* Drafts a commit message with the AI (D) into the commit message box. Ctrl+S commits it. */
 static void do_draft_commit(void) {
     if (nfiles == 0 && !merging) {
         set_msg("Nothing to draft.");
@@ -1070,54 +1173,12 @@ static void do_draft_commit(void) {
         return;
     }
 
-    char *gd = NULL;
-    if (run_cmd("git rev-parse --absolute-git-dir", &gd) != 0 || !gd) {
-        free(gd);
-        free(draft);
-        set_msg("Could not find the git dir.");
-        return;
-    }
-    trim_ws(gd);
-    snprintf(draft_path, sizeof draft_path, "%s/COMMIT_EDITMSG", gd);
-    free(gd);
-
-    /* A draft that is open with unsaved edits is not overwritten */
-    int i = tab_find(draft_path);
-    if (i >= 0 && tab_doc(i)->modified) {
-        free(draft);
-        set_msg("Save or close the open COMMIT_EDITMSG tab first.");
-        return;
-    }
-
-    FILE *f = fopen(draft_path, "wb");
-    if (!f) {
-        free(draft);
-        set_msg("Could not write the commit message file.");
-        return;
-    }
-    fputs(draft, f);
-    fputs("\n", f);
-    fclose(f);
+    msgedit_set(&cmsg, draft);
     free(draft);
-
-    if (i >= 0) {   /* already open and clean: reload it from the file */
-        tab_switch(i);
-        reset_document();
-        FILE *in = fopen(draft_path, "rb");
-        if (in) {
-            load_stream(in);
-            fclose(in);
-        }
-        undo_clear();
-        editor.modified = 0;
-        watch_record();
-    } else if (!open_path(draft_path, 1)) {
-        set_msg("Could not open the draft.");
-        return;
-    }
-
-    draft_pending = 1;
-    set_msg("Draft opened in a tab. Save it (Ctrl+S), then C to commit.");
+    dtop = 0;
+    dleft = 0;
+    box_open = 1;
+    set_msg("Edit the message. Ctrl+S commits, Esc hides it.");
 }
 
 static void push_log(const char *line);
@@ -1279,6 +1340,38 @@ void git_modal(void) {
             continue;
         }
 
+        if (box_open) {
+            draw();
+            key = read_key();
+            if (key == -1) continue;
+
+            switch (key) {
+                case KEY_ESC:       box_open = 0; set_msg("Draft kept. E opens it again."); break;
+                case KEY_CTRL_S:    commit_draft(); break;
+                case KEY_ENTER:     msgedit_insert_cp(&cmsg, '\n'); break;
+                case KEY_BACKSPACE: msgedit_backspace(&cmsg); break;
+                case KEY_DELETE:    msgedit_delete(&cmsg); break;
+                case KEY_LEFT:      msgedit_left(&cmsg); break;
+                case KEY_RIGHT:     msgedit_right(&cmsg); break;
+                case KEY_UP:        msgedit_up(&cmsg); break;
+                case KEY_DOWN:      msgedit_down(&cmsg); break;
+                case KEY_RESIZE:    term_update_size(); clear_screen(); break;
+                case KEY_PASTE: {
+                    int len;
+                    char *text = term_take_paste(&len);
+                    if (text) {
+                        msgedit_paste(&cmsg, text, len);
+                        free(text);
+                    }
+                    break;
+                }
+                default:
+                    if (key >= 0 && key < KEY_BASE) msgedit_insert_cp(&cmsg, key);
+                    break;
+            }
+            continue;
+        }
+
         clamp_top();
         draw();
         key = read_key_wait(-1);   /* not read_key(): the file list takes mouse clicks */
@@ -1317,6 +1410,8 @@ void git_modal(void) {
             case 'C':        if (in_repo) do_commit(); break;
             case 'd':
             case 'D':        if (in_repo) do_draft_commit(); break;
+            case 'e':
+            case 'E':        if (in_repo && have_draft()) box_open = 1; break;
             case 'p':
             case 'P':        if (in_repo) do_push(); break;
             case 'b':
@@ -1335,6 +1430,7 @@ void git_modal(void) {
     clear_branches();
     clear_status();
     clear_output();
+    clear_draft();
     set_cursor_visibility(1);
     clear_screen();
 }
