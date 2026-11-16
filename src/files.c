@@ -326,6 +326,7 @@ static int browser_read_key(void) {
    list. Returns 0 if cancelled. */
 static int browse(int save_mode, const char *suggest, char *out, size_t size) {
     int sel = 0, top = 0;
+    int typing = 0;   /* Save As: user is typing a name, so Enter saves instead of entering a folder */
     char typed[256];
     snprintf(typed, sizeof(typed), "%s", suggest ? suggest : "");
     load_dir_entries();
@@ -350,11 +351,13 @@ static int browse(int save_mode, const char *suggest, char *out, size_t size) {
                 if (sel >= top + browser_rows()) sel = top + browser_rows() - 1;
                 if (sel >= dir_count) sel = dir_count - 1;
                 follow_selection(save_mode, sel, typed, sizeof(typed));
+                typing = 0;
                 continue;
             }
             if (ev.kind != MEV_PRESS || ev.y < 2 || ev.y >= 2 + browser_rows()) continue;
             int idx = top + (ev.y - 2);
             if (idx >= dir_count) continue;
+            typing = 0;
             sel = idx;
             follow_selection(save_mode, sel, typed, sizeof(typed));
             /* Save As on a file only selects it (the name is filled in); Enter saves */
@@ -364,10 +367,12 @@ static int browse(int save_mode, const char *suggest, char *out, size_t size) {
         switch (key) {
             case KEY_UP:
                 if (sel > 0) sel--;
+                typing = 0;
                 follow_selection(save_mode, sel, typed, sizeof(typed));
                 break;
             case KEY_DOWN:
                 if (sel < dir_count - 1) sel++;
+                typing = 0;
                 follow_selection(save_mode, sel, typed, sizeof(typed));
                 break;
             case KEY_RESIZE:
@@ -377,14 +382,19 @@ static int browse(int save_mode, const char *suggest, char *out, size_t size) {
             case KEY_ESC:
                 return 0;
             case KEY_BACKSPACE:
-                if (save_mode) name_backspace(typed);
+                if (save_mode) { name_backspace(typed); typing = 1; }
                 break;
             case KEY_ENTER:
+                if (save_mode && typing && typed[0]) {
+                    snprintf(out, size, "%s", typed);
+                    return 1;
+                }
                 if (dir_entries[sel].is_dir) {
                     if (change_dir(dir_entries[sel].name)) {
                         load_dir_entries();
                         sel = 0;
                         top = 0;
+                        typing = 0;
                         follow_selection(save_mode, sel, typed, sizeof(typed));
                     } else {
                         show_message("Cannot open that folder.");
@@ -412,6 +422,7 @@ static int browse(int save_mode, const char *suggest, char *out, size_t size) {
                     }
                 } else if (is_text_key(key)) {
                     name_append(typed, sizeof(typed), key);
+                    typing = 1;
                 }
                 break;
         }
