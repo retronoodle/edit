@@ -52,3 +52,23 @@ int gitpush_parse_upstream(const char *out, char *remote, size_t rn, char *branc
     }
     return 0;
 }
+
+int gitpush_is_rejected_behind(const char *out) {
+    if (!out) return 0;
+    const char *p = out;
+    while (*p) {
+        const char *eol = strchr(p, '\n');
+        size_t len = eol ? (size_t)(eol - p) : strlen(p);
+        char line[512];
+        if (len < sizeof line) {
+            memcpy(line, p, len);
+            line[len] = '\0';
+            if (strstr(line, "[rejected]") &&
+                (strstr(line, "(fetch first)") || strstr(line, "(non-fast-forward)")))
+                return 1;
+        }
+        if (!eol) break;
+        p = eol + 1;
+    }
+    return 0;
+}

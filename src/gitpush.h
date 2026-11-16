@@ -11,4 +11,9 @@
    returns 1. Otherwise returns 0 and leaves them untouched. */
 int gitpush_parse_upstream(const char *out, char *remote, size_t rn, char *branch, size_t bn);
 
+/* Returns 1 when git refused the push because the remote has commits we lack
+   (a "[rejected]" line marked "(fetch first)" or "(non-fast-forward)"). Pure, no I/O.
+   Upstream hints, auth errors and NULL or empty output return 0. */
+int gitpush_is_rejected_behind(const char *out);
+
 #endif

@@ -1228,7 +1228,8 @@ static void push_log(const char *line) {
     fclose(f);
 }
 
-static void do_push(void) {
+/* Runs git push once and logs it. Returns the exit status; the output is in out_text. */
+static int run_push(void) {
 #ifdef _WIN32
     const char *cmd = "set GIT_TERMINAL_PROMPT=0&& set GIT_SSH_COMMAND=ssh -o BatchMode=yes&& git push <NUL";
 #else
@@ -1241,12 +1242,64 @@ static void do_push(void) {
     snprintf(rcline, sizeof rcline, "exit status: %d", rc);
     push_log(rcline);
     push_log(out_text && *out_text ? out_text : "(no output)");
+    return rc;
+}
 
-    /* Only git's own "--set-upstream" hint is offered; other failures stay red. */
+/* Reports the open merge after a failed pull, same wording as do_merge. */
+static void report_merge_conflicts(void) {
+    char tmp[MSG_MAX];
+    snprintf(tmp, sizeof tmp, "Merge conflicts in %d file(s). Fix them, then C Commit, or A Abort merge.", count_conflicts());
+    set_msg(tmp);
+}
+
+/* Asks before pulling (merge, no editor) when the remote has commits we lack, then pushes again.
+   Nothing runs without a yes. A pull that stops on conflicts is not followed by a push. */
+static void offer_pull_then_push(void) {
+    char ans[8] = "";
+    if (!prompt_line("Remote has new commits. Pull (merge) and push again? [y/N]: ", ans, sizeof ans) ||
+        (ans[0] != 'y' && ans[0] != 'Y')) {
+        set_msg("Push not retried. Pull first to merge the remote commits.");
+        return;
+    }
+
+    int rc;
+    push_log("--- pull start ---");
+#ifdef _WIN32
+    const char *pcmd = "set GIT_TERMINAL_PROMPT=0&& set GIT_SSH_COMMAND=ssh -o BatchMode=yes&& git pull --no-rebase --no-edit <NUL";
+    rc = run_git("git pull", pcmd);
+#else
+    char *pargv[] = { "git", "pull", "--no-rebase", "--no-edit", NULL };
+    rc = run_argv("git pull", pargv);
+#endif
+    char rcline[64];
+    snprintf(rcline, sizeof rcline, "pull exit status: %d", rc);
+    push_log(rcline);
+    push_log(out_text && *out_text ? out_text : "(no output)");
+    push_log("--- pull end ---");
+    load_status();
+
+    if (rc != 0) {
+        if (merging) report_merge_conflicts();
+        else set_msg("Pull failed. Push not retried.");
+        return;
+    }
+    /* One retry only: if this push is refused too, its red output stays. */
+    int prc = run_push();
+    load_status();
+    if (prc == 0) add_reload_hint();
+}
+
+static void do_push(void) {
+    int rc = run_push();
+
+    /* Only git's own hints are offered; other failures stay red. */
     char remote[NAME_MAX_LEN], branch[NAME_MAX_LEN];
     if (rc != 0 && gitpush_parse_upstream(out_text, remote, sizeof remote, branch, sizeof branch)) {
         out_state = OUT_INFO;
         offer_set_upstream(remote, branch);
+    } else if (rc != 0 && gitpush_is_rejected_behind(out_text)) {
+        out_state = OUT_INFO;
+        offer_pull_then_push();
     }
     push_log("--- push end ---");
     load_status();
@@ -1284,9 +1337,7 @@ static void do_merge(const char *name) {
     if (rc == 0) {
         add_reload_hint();
     } else if (merging) {
-        char tmp[MSG_MAX];
-        snprintf(tmp, sizeof tmp, "Merge conflicts in %d file(s). Fix them, then C Commit, or A Abort merge.", count_conflicts());
-        set_msg(tmp);
+        report_merge_conflicts();
     }
 }
 

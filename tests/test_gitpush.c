@@ -71,6 +71,21 @@ int main(void) {
     CHECK(gitpush_parse_upstream("git push --set-upstream origin abcdef\n", remote, 4, branch, RN) == 0,
           "branch too long for buffer is refused");
 
+    /* Remote ahead: git's real "fetch first" rejection */
+    const char *behind =
+        " ! [rejected]        master -> master (fetch first)\n"
+        "error: failed to push some refs to 'gitlab.com:x/y.git'\n"
+        "hint: Updates were rejected because the remote contains work that you do\n";
+    CHECK(gitpush_is_rejected_behind(behind) == 1, "fetch first rejection is detected");
+    CHECK(gitpush_is_rejected_behind(rejected) == 1, "non-fast-forward rejection is detected");
+    CHECK(gitpush_is_rejected_behind(hint) == 0, "no-upstream hint is not a rejection");
+    CHECK(gitpush_is_rejected_behind("fatal: Authentication failed for 'x'\n") == 0,
+          "auth failure is not a rejection");
+    CHECK(gitpush_is_rejected_behind("") == 0, "empty output is not a rejection");
+    CHECK(gitpush_is_rejected_behind(NULL) == 0, "NULL output is not a rejection");
+    CHECK(gitpush_is_rejected_behind(" ! [rejected]        main -> main (protected)\n") == 0,
+          "other rejections are not offered a pull");
+
     printf("%s\n", failures ? "gitpush: FAILURES" : "gitpush: all passed");
     return failures ? 1 : 0;
 }
