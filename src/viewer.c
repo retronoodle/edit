@@ -124,7 +124,8 @@ void view_text(const char *title, const char *text) {
         int max_top = r.n - page;
         if (max_top < 0) max_top = 0;
 
-        if (key == KEY_ESC || key == KEY_ENTER || key == 'q' || key == 'Q' || key == -1) break;
+        /* -1 is an idle timeout on POSIX (read_key returns it every ~100 ms), not a close */
+        if (key == KEY_ESC || key == KEY_ENTER || key == 'q' || key == 'Q') break;
 
         if (key == KEY_UP) { if (top > 0) top--; }
         else if (key == KEY_DOWN) { if (top < max_top) top++; }
