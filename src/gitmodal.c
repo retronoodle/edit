@@ -21,12 +21,14 @@
 #include "tabs.h"
 #include "options.h"
 #include "aiask.h"
+#include "viewer.h"
 #include "gitmodal.h"
 
 #define MSG_MAX 256
 #define CMD_MAX 1536   /* room for a full temp path inside the git commit command */
 #define COMMIT_MAX 256
 #define DIFF_MAX 20000   /* diff bytes sent to the AI for a commit draft */
+#define VIEW_DIFF_MAX 200000   /* diff bytes shown in the viewer (Enter / click on a file) */
 
 static const char COMMIT_SYSTEM[] =
     "Write a git commit message for this diff. One line, imperative mood, max 72 characters. "
@@ -434,8 +436,8 @@ static void draw(void) {
 
     const char *foot;
     if (!in_repo) foot = " Esc Close";
-    else if (merging) foot = " Space Stage  S/U All  C Commit  D Draft  A Abort merge  R Refresh  Esc Close";
-    else foot = " Space Stage  S/U All  C Commit  D Draft  P Push  B Branch  M Merge  R Refresh  Esc Close";
+    else if (merging) foot = " Space Stage  Enter Diff  S/U All  C Commit  D Draft  A Abort merge  R Refresh  Esc Close";
+    else foot = " Space Stage  Enter Diff  S/U All  C Commit  D Draft  P Push  B Branch  M Merge  R Refresh  Esc Close";
     put_row(screen_h - 1, options_chrome_sgr(CH_STATUS), foot);
     fb_flush();
 }
@@ -621,6 +623,73 @@ static void do_toggle(void) {
         run_git("git add", cmd);
     }
     load_status();
+}
+
+/* Shows the selected file's diff in the viewer. Tracked files diff against HEAD
+   (staged and unstaged changes together); untracked files diff against an empty file.
+   A repo with no commits yet has no HEAD, so it falls back to the staged diff. */
+static void do_file_diff(void) {
+    if (!in_repo || nfiles == 0) return;
+    const char *line = files[sel];
+    int untracked = file_kind(line) == FS_UNTRACKED;
+
+    const char *arrow = strstr(line + 3, " -> ");
+    char old_p[512] = "", path[512];
+    if (arrow) snprintf(old_p, sizeof old_p, "%.*s", (int)(arrow - (line + 3)), line + 3);
+    snprintf(path, sizeof path, "%s", arrow ? arrow + 4 : line + 3);
+    if (!valid_path(path) || (arrow && !valid_path(old_p))) {
+        set_msg("That file name has characters git actions cannot handle here.");
+        return;
+    }
+
+    char cmd[CMD_MAX];
+    if (untracked) {
+#ifdef _WIN32
+        snprintf(cmd, sizeof cmd, "git diff --no-index -- NUL \"%s\"", path);
+#else
+        snprintf(cmd, sizeof cmd, "git diff --no-index -- /dev/null \"%s\"", path);
+#endif
+    } else if (arrow) {   /* both sides of a rename, so git pairs them and shows the edit */
+        snprintf(cmd, sizeof cmd, "git diff HEAD -M -- \":/%s\" \":/%s\"", old_p, path);
+    } else {
+        snprintf(cmd, sizeof cmd, "git diff HEAD -- \":/%s\"", path);
+    }
+
+    /* git diff --no-index exits 1 when the files differ, so its status is not checked. */
+    char *text = NULL;
+    int rc = run_cmd(cmd, &text);
+    if (!untracked && rc != 0) {   /* no HEAD yet */
+        free(text);
+        text = NULL;
+        snprintf(cmd, sizeof cmd, "git diff --cached -- \":/%s\"", path);
+        rc = run_cmd(cmd, &text);
+    }
+    if (!text || (rc != 0 && !untracked)) {
+        free(text);
+        set_msg("Could not read the diff.");
+        return;
+    }
+
+    const char *p = text;
+    while (*p && isspace((unsigned char)*p)) p++;
+    if (!*p) {
+        free(text);
+        set_msg("No changes to show.");
+        return;
+    }
+
+    size_t n = strlen(text);
+    if (n > VIEW_DIFF_MAX) {
+        size_t cut = VIEW_DIFF_MAX;
+        while (cut > 0 && text[cut - 1] != '\n') cut--;
+        if (cut == 0) cut = VIEW_DIFF_MAX;
+        text[cut] = '\0';
+        set_msg("Diff is too large; showing the start.");
+    }
+
+    view_text(path, text);
+    free(text);
+    clear_screen();
 }
 
 static void do_stage_all(void) {
@@ -915,7 +984,7 @@ void git_modal(void) {
 
         clamp_top();
         draw();
-        key = read_key();
+        key = read_key_wait(-1);   /* not read_key(): the file list takes mouse clicks */
         if (key == -1) continue;   /* unmapped key (e.g. Alt released): ignore, don't close */
 
         switch (key) {
@@ -923,6 +992,25 @@ void git_modal(void) {
             case KEY_ALT_G:  done = 1; break;
             case KEY_UP:     sel--; break;
             case KEY_DOWN:   sel++; break;
+            case KEY_ENTER:  do_file_diff(); break;
+            case KEY_MOUSE: {
+                MouseEvent ev;
+                term_get_mouse(&ev);
+                if (!in_repo || nfiles == 0) break;
+                if (ev.kind == MEV_WHEEL_UP) sel--;
+                else if (ev.kind == MEV_WHEEL_DOWN) sel++;
+                else if (ev.kind == MEV_PRESS && ev.y >= 1 && ev.y - 1 < list_rows()
+                         && top + ev.y - 1 < nfiles) {
+                    sel = top + ev.y - 1;
+                    do_file_diff();
+                }
+                break;
+            }
+            case KEY_PASTE: {
+                int len;
+                free(term_take_paste(&len));
+                break;
+            }
             case ' ':        if (in_repo) do_toggle(); break;
             case 's':
             case 'S':        if (in_repo) do_stage_all(); break;

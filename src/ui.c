@@ -615,7 +615,7 @@ void show_help(void) {
     printf("  Ctrl+F / F3     - Find / Find next\n");
     printf("  Ctrl+R          - Replace (Y/N/A=all, Esc=stop)\n");
     printf("  Ctrl+G          - Go to line\n");
-    printf("  Alt+G           - Git panel (status, commit, push, branch, merge; D = AI commit message)\n");
+    printf("  Alt+G           - Git panel (status, diff, commit, push, branch, merge; Enter = file diff, D = AI commit message)\n");
     printf("  Alt+I           - Ask AI (instruction + selection, one undo step)\n");
     printf("  Ctrl+Q          - Exit\n\n");
     printf("AI:\n");
