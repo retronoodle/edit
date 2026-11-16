@@ -16,6 +16,7 @@
 #include "undo.h"
 #include "recovery.h"
 #include "tabs.h"
+#include "options.h"
 #include "watch.h"
 
 /* Reads the file's mtime (seconds and nanoseconds) and size. Returns 0 if it cannot be stat'ed.
@@ -87,7 +88,7 @@ static void ask_reload(void) {
         : "File changed on disk. Reload? (Y)es / (N)o";
 
     gotoxy(0, screen_h - 2);
-    printf("%-*.*s", screen_w - 1, screen_w - 1, msg);
+    printf("\x1b[7m%-*.*s%s", screen_w - 1, screen_w - 1, msg, options_base_sgr());
     fflush(stdout);
 
     while (1) {
@@ -96,7 +97,8 @@ static void ask_reload(void) {
             reload_from_disk();
             return;
         }
-        if (c == 'n' || c == 'N' || c == 27 || c == -1) {
+        if (c == -1) continue;   /* POSIX read timeout (VTIME), not an answer: keep waiting */
+        if (c == 'n' || c == 'N' || c == 27) {
             watch_record();   /* keep the buffer; stop asking about this change */
             return;
         }
