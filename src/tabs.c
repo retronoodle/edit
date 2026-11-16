@@ -1,8 +1,14 @@
 /* Tabs: see tabs.h. Invariant: the slot of the active tab is empty (zeroed);
    every other slot owns its document lines and history. */
+#ifndef _WIN32
+    #define _XOPEN_SOURCE 700   /* realpath */
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+    #include <windows.h>
+#endif
 
 #include "editor.h"
 #include "buffer.h"
@@ -117,9 +123,23 @@ void tab_mark_named(void) {
     tabs[cur].named = 1;
 }
 
+/* Same file under two spellings (relative and absolute, say). Paths that
+   resolve are compared resolved; anything else is compared as typed. */
+static int same_file(const char *a, const char *b) {
+    if (strcmp(a, b) == 0) return 1;
+    char ra[4096], rb[4096];
+#ifdef _WIN32
+    if (!_fullpath(ra, a, sizeof(ra)) || !_fullpath(rb, b, sizeof(rb))) return 0;
+    return _stricmp(ra, rb) == 0;
+#else
+    if (!realpath(a, ra) || !realpath(b, rb)) return 0;
+    return strcmp(ra, rb) == 0;
+#endif
+}
+
 int tab_find(const char *name) {
     for (int i = 0; i < tab_n; i++) {
-        if (tabs[i].named && strcmp(tab_name(i), name) == 0) return i;
+        if (tabs[i].named && same_file(tab_name(i), name)) return i;
     }
     return -1;
 }

@@ -1,11 +1,12 @@
-/* Quick Open (Ctrl+P): scans every file under the current folder once, then
-   filters the list as the user types. Matching lives in fuzzy.c. */
+/* Quick Open (Ctrl+P): scans every file under the folder velo started in, once,
+   then filters the list as the user types. Matching lives in fuzzy.c. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
 
 #ifdef _WIN32
+    #include <direct.h>
     #include <windows.h>
 #else
     #include <dirent.h>
@@ -46,6 +47,22 @@ static int file_count = 0, file_cap = 0;
 static int truncated = 0;
 static int *shown = NULL;      /* indexes into files, best match first */
 static int shown_count = 0;
+static char qo_root[QO_PATH];  /* the folder velo started in; the cwd drifts with the file browser */
+
+void quickopen_set_root(void) {
+#ifdef _WIN32
+    if (!_getcwd(qo_root, (int)sizeof(qo_root))) qo_root[0] = '\0';
+#else
+    if (!getcwd(qo_root, sizeof(qo_root))) qo_root[0] = '\0';
+#endif
+}
+
+/* Builds the real path of rel (relative to the start folder, "" = the start folder). */
+static void real_path(char *out, size_t size, const char *rel) {
+    const char *base = qo_root[0] ? qo_root : ".";
+    if (rel[0]) snprintf(out, size, "%s%c%s", base, QO_SEP, rel);
+    else snprintf(out, size, "%s", base);
+}
 
 static void free_files(void) {
     for (int i = 0; i < file_count; i++) free(files[i].rel);
@@ -100,13 +117,14 @@ static int make_child(char *out, size_t size, const char *dir, const char *name)
     return n > 0 && (size_t)n < size;
 }
 
-/* Walks dir (relative to the cwd, "" = the cwd) and adds every file found. */
+/* Walks dir (relative to the start folder, "" = the start folder) and adds every file found.
+   rel names are what the list shows; real paths (under qo_root) are what the OS sees. */
 static void scan_dir(const char *dir, int depth) {
-    char child[QO_PATH];
+    char child[QO_PATH], real_dir[QO_PATH];
+    real_path(real_dir, sizeof(real_dir), dir);
 #ifdef _WIN32
     char pattern[QO_PATH];
-    if (dir[0]) snprintf(pattern, sizeof(pattern), "%s\\*", dir);
-    else snprintf(pattern, sizeof(pattern), "*");
+    snprintf(pattern, sizeof(pattern), "%s\\*", real_dir);
 
     WIN32_FIND_DATAA fd;
     HANDLE h = FindFirstFileA(pattern, &fd);
@@ -125,7 +143,8 @@ static void scan_dir(const char *dir, int depth) {
     } while (FindNextFileA(h, &fd));
     FindClose(h);
 #else
-    DIR *d = opendir(dir[0] ? dir : ".");
+    char real_child[QO_PATH];
+    DIR *d = opendir(real_dir);
     if (!d) return;
     struct dirent *de;
     while ((de = readdir(d)) != NULL) {
@@ -133,8 +152,9 @@ static void scan_dir(const char *dir, int depth) {
         const char *name = de->d_name;
         if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) continue;
         if (!make_child(child, sizeof(child), dir, name)) continue;
+        if (!make_child(real_child, sizeof(real_child), real_dir, name)) continue;
         struct stat st;
-        if (stat(child, &st) != 0) continue;
+        if (stat(real_child, &st) != 0) continue;
         if (S_ISDIR(st.st_mode)) {
             if (depth < QO_MAX_DEPTH && !skip_dir(name)) scan_dir(child, depth + 1);
         } else if (S_ISREG(st.st_mode)) {
@@ -347,7 +367,7 @@ static int quick_open_loop(void) {
                     break;
                 }
                 char name[QO_PATH];   /* copy: freeing the list drops the entry */
-                snprintf(name, sizeof(name), "%s", files[shown[sel]].rel);
+                real_path(name, sizeof(name), files[shown[sel]].rel);   /* absolute: the cwd may have moved */
                 return open_path(name, 0);
             }
             default:
