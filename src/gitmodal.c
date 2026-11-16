@@ -10,6 +10,12 @@
 #include <string.h>
 #include <ctype.h>
 
+#ifndef _WIN32
+    #include <unistd.h>
+    #include <fcntl.h>
+    #include <sys/wait.h>
+#endif
+
 #ifdef _WIN32
     FILE *_popen(const char *command, const char *mode);
     int _pclose(FILE *stream);
@@ -25,6 +31,7 @@
 #include "syntax.h"
 #include "gitmodal.h"
 #include "diffcap.h"
+#include "gitpush.h"
 #include "files.h"
 #include "buffer.h"
 #include "undo.h"
@@ -62,7 +69,7 @@ static char draft_path[1024];   /* git's COMMIT_EDITMSG under the git dir, where
 /* Output panel: the last git action, replaced by each new one. */
 #define OUT_ROWS 4        /* header line + 3 tail lines of output */
 #define OUT_MIN_H 10      /* below this screen height there is no panel */
-typedef enum { OUT_NONE, OUT_RUNNING, OUT_OK, OUT_FAILED } OutState;
+typedef enum { OUT_NONE, OUT_RUNNING, OUT_OK, OUT_FAILED, OUT_INFO } OutState;  /* OUT_INFO: failed, but a push offer is pending */
 static OutState out_state = OUT_NONE;
 static char out_label[32] = "";  /* e.g. "git push" */
 static int out_rc = 0;
@@ -121,6 +128,18 @@ static void clamp_top(void) {
     if (sel >= top + list_rows()) top = sel - list_rows() + 1;
 }
 
+/* pclose() and waitpid() return a wait status, not the exit code: git's exit 128
+   shows up as 128 << 8 = 32768. Decode it; a signal gives 128 + signal number. */
+static int exit_code(int st) {
+#ifdef _WIN32
+    return st;
+#else
+    if (WIFEXITED(st)) return WEXITSTATUS(st);
+    if (WIFSIGNALED(st)) return 128 + WTERMSIG(st);
+    return -1;
+#endif
+}
+
 /* Runs a shell command with stderr merged in. Output goes to *out (malloc'd,
    may be NULL on failure). Returns the exit status, or -1 if it could not run. */
 static int run_cmd(const char *cmd, char **out) {
@@ -174,7 +193,7 @@ static int run_cmd(const char *cmd, char **out) {
     int rc = pclose(p);
 #endif
     *out = buf;
-    return rc;
+    return exit_code(rc);
 }
 
 static void clear_status(void) {
@@ -350,6 +369,9 @@ static void draw_panel(void) {
             snprintf(head, sizeof head, "  $ %s  failed (exit %d)", out_label, out_rc);
             snprintf(row_sgr, sizeof row_sgr, "%s%s", options_base_sgr(), kind_sgr[options.scheme][FS_CONFLICT]);
             hsgr = row_sgr;
+            break;
+        case OUT_INFO:
+            snprintf(head, sizeof head, "  $ %s  no upstream", out_label);
             break;
         default:
             head[0] = '\0';
@@ -568,6 +590,71 @@ static int valid_branch_name(const char *s) {
     }
     return 1;
 }
+
+#ifndef _WIN32
+/* Runs a program from argv with no shell, capturing stdout and stderr like run_cmd.
+   Used for the push retry, where remote and branch come from git's output. */
+static int run_argv(const char *label, char *const argv[]) {
+    snprintf(out_label, sizeof out_label, "%s", label);
+    free(out_text);
+    out_text = NULL;
+    out_state = OUT_RUNNING;
+    msg[0] = '\0';
+    if (picking) draw_pick();
+    else draw();
+
+    int fds[2];
+    if (pipe(fds) != 0) { out_rc = -1; out_state = OUT_FAILED; return -1; }
+    pid_t pid = fork();
+    if (pid < 0) {
+        close(fds[0]);
+        close(fds[1]);
+        out_rc = -1;
+        out_state = OUT_FAILED;
+        return -1;
+    }
+    if (pid == 0) {
+        int nul = open("/dev/null", O_RDONLY);
+        if (nul >= 0) { dup2(nul, 0); close(nul); }
+        dup2(fds[1], 1);
+        dup2(fds[1], 2);
+        close(fds[0]);
+        close(fds[1]);
+        setenv("GIT_TERMINAL_PROMPT", "0", 1);
+        setenv("GIT_SSH_COMMAND", "ssh -o BatchMode=yes", 1);
+        execvp(argv[0], argv);
+        _exit(127);
+    }
+    close(fds[1]);
+
+    size_t cap = 1024, len = 0;
+    char *buf = malloc(cap);
+    char chunk[512];
+    ssize_t n;
+    while (buf && (n = read(fds[0], chunk, sizeof chunk)) > 0) {
+        if (len + (size_t)n + 1 > cap) {
+            size_t nc = cap;
+            while (len + (size_t)n + 1 > nc) nc *= 2;
+            char *nb = realloc(buf, nc);
+            if (!nb) { free(buf); buf = NULL; break; }
+            buf = nb;
+            cap = nc;
+        }
+        memcpy(buf + len, chunk, (size_t)n);
+        len += (size_t)n;
+    }
+    close(fds[0]);
+    if (buf) buf[len] = '\0';
+
+    int st = 0;
+    waitpid(pid, &st, 0);
+    int rc = buf ? exit_code(st) : -1;
+    out_text = buf;
+    out_rc = rc;
+    out_state = rc == 0 ? OUT_OK : OUT_FAILED;
+    return rc;
+}
+#endif
 
 /* Runs a git action for the output panel. RUNNING is drawn before the blocking
    call so a slow push shows it is in progress. Clears msg. Returns the exit status. */
@@ -1033,6 +1120,37 @@ static void do_draft_commit(void) {
     set_msg("Draft opened in a tab. Save it (Ctrl+S), then C to commit.");
 }
 
+static void push_log(const char *line);
+
+/* Asks before running git's own suggestion, "git push --set-upstream <remote> <branch>".
+   Nothing runs without a yes. The result shows in the output panel like any push. */
+static void offer_set_upstream(char *remote, char *branch) {
+    char q[320], ans[8] = "";
+    snprintf(q, sizeof q, "Branch has no upstream. Run 'git push --set-upstream %s %s'? [y/N]: ",
+             remote, branch);
+    if (!prompt_line(q, ans, sizeof ans) || (ans[0] != 'y' && ans[0] != 'Y')) {
+        set_msg("Push not retried. Upstream not set.");
+        return;
+    }
+
+    int rc;
+#ifdef _WIN32
+    char cmd[CMD_MAX];
+    snprintf(cmd, sizeof cmd,
+             "set GIT_TERMINAL_PROMPT=0&& set GIT_SSH_COMMAND=ssh -o BatchMode=yes&& "
+             "git push --set-upstream %s %s <NUL", remote, branch);
+    rc = run_git("git push --set-upstream", cmd);
+#else
+    char *argv[] = { "git", "push", "--set-upstream", remote, branch, NULL };
+    rc = run_argv("git push --set-upstream", argv);
+#endif
+
+    char rcline[64];
+    snprintf(rcline, sizeof rcline, "set-upstream exit status: %d", rc);
+    push_log(rcline);
+    push_log(out_text && *out_text ? out_text : "(no output)");
+}
+
 /* Pushes. Prompts are switched off so a missing login fails instead of hanging.
    ssh gets BatchMode and stdin is cut off, since ssh would otherwise ask on the
    terminal we are running in and velo would wait forever. */
@@ -1062,6 +1180,13 @@ static void do_push(void) {
     snprintf(rcline, sizeof rcline, "exit status: %d", rc);
     push_log(rcline);
     push_log(out_text && *out_text ? out_text : "(no output)");
+
+    /* Only git's own "--set-upstream" hint is offered; other failures stay red. */
+    char remote[NAME_MAX_LEN], branch[NAME_MAX_LEN];
+    if (rc != 0 && gitpush_parse_upstream(out_text, remote, sizeof remote, branch, sizeof branch)) {
+        out_state = OUT_INFO;
+        offer_set_upstream(remote, branch);
+    }
     push_log("--- push end ---");
     load_status();
 }
