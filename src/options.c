@@ -118,7 +118,7 @@ int options_parse_line(const char *line) {
     const char *eq = strchr(line, '=');
     if (!eq) return 0;
 
-    char key[32], val[256];
+    char key[32], val[sizeof(options.ai_key)];   /* as big as the largest text setting, so a long API key is not cut */
     size_t kl = (size_t)(eq - line);
     if (kl >= sizeof(key)) return 0;
     memcpy(key, line, kl);
@@ -127,7 +127,8 @@ int options_parse_line(const char *line) {
 
     const char *v = eq + 1;
     while (is_blank(*v)) v++;
-    snprintf(val, sizeof(val), "%s", v);
+    if (strlen(v) >= sizeof(val)) return 0;   /* too long: reject rather than keep a cut-off value */
+    strcpy(val, v);
     size_t vl = strlen(val);
     while (vl > 0 && is_blank(val[vl - 1])) val[--vl] = '\0';
 

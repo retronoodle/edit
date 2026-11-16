@@ -102,6 +102,16 @@ static void test_ai(void) {
     CHECK(options_parse_line("ai_key=sk-abc123  \r\n") == 1, "ai_key applied, trailing blanks trimmed");
     CHECK(strcmp(options.ai_key, "sk-abc123") == 0, "ai_key value trimmed");
 
+    /* a long key (over 255 chars) must load whole, not truncated */
+    {
+        char line[600], longkey[301];
+        memset(longkey, 'k', 300);
+        longkey[300] = '\0';
+        snprintf(line, sizeof(line), "ai_key=%s\n", longkey);
+        CHECK(options_parse_line(line) == 1, "300-char ai_key applied");
+        CHECK(strcmp(options.ai_key, longkey) == 0, "300-char ai_key not truncated");
+    }
+
     CHECK(options_parse_line("ai_model=") == 1, "empty ai_model accepted");
     CHECK(options.ai_model[0] == '\0', "empty ai_model clears the value");
 }
