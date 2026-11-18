@@ -467,7 +467,10 @@ void refresh_screen() {
         screen_y = editor.cursor_y - editor.scroll_y + TEXT_TOP;
     }
     fb_gotoxy(screen_x, screen_y);
-    fb_puts("\x1b[?25h");   // show cursor
+    /* After a wheel scroll the cursor can be off screen: keep the hardware cursor hidden */
+    int visible = editor.cursor_y >= editor.scroll_y &&
+                  screen_y >= TEXT_TOP && screen_y < TEXT_TOP + TEXT_ROWS;
+    if (visible) fb_puts("\x1b[?25h");   // show cursor
 
     // One write for the whole frame
     fb_flush();

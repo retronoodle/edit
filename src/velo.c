@@ -117,7 +117,7 @@ int main(int argc, char *argv[]) {
 
     while (running) {
         recovery_tick();
-        adjust_scroll();
+        if (!view_detached) adjust_scroll();
         if (needs_redraw) {
             refresh_screen();
             needs_redraw = 0;
@@ -134,6 +134,7 @@ int main(int argc, char *argv[]) {
             needs_redraw = 1;
             continue;
         }
+        view_detached = 0;          /* a key brings the view back to the cursor */
         if (key == KEY_PASTE) {     /* text pasted by the terminal (Ctrl+Shift+V): insert it as typed text */
             int len = 0;
             char *text = term_take_paste(&len);

@@ -87,28 +87,17 @@ static void select_word_at_cursor(void) {
     editor.cursor_x = end;
 }
 
-/* Scrolls the view by rows (negative is up). The cursor keeps its column and
-   moves only if it would be left off screen. */
+/* Scrolls the view by rows (negative is up). The cursor does not move, so the
+   view may go past it; the next key or click brings the view back. */
+int view_detached = 0;
+
 static void scroll_by(int rows) {
     int max_line = editor.line_count - 1;
     if (max_line < 0) max_line = 0;
 
-    Line *old = &editor.lines[editor.cursor_y];
-    int col = utf8_col(old->text, old->len, editor.cursor_x);
-
     editor.scroll_y += rows;
     if (editor.scroll_y < 0) editor.scroll_y = 0;
     if (editor.scroll_y > max_line) editor.scroll_y = max_line;
-
-    int top = editor.scroll_y;
-    int bottom = editor.scroll_y + TEXT_ROWS - 1;
-    if (bottom > max_line) bottom = max_line;
-
-    if (editor.cursor_y < top) editor.cursor_y = top;
-    if (editor.cursor_y > bottom) editor.cursor_y = bottom;
-
-    Line *ln = &editor.lines[editor.cursor_y];
-    editor.cursor_x = utf8_byte_at_col(ln->text, ln->len, col);
 }
 
 /* Returns the menu whose title covers column x on the menu bar, or -1. */
@@ -160,6 +149,9 @@ static int menu_click(const MouseEvent *ev) {
 }
 
 int mouse_handle(const MouseEvent *ev) {
+    /* Only the wheel leaves the view detached; any other mouse input re-attaches it */
+    view_detached = (ev->kind == MEV_WHEEL_UP || ev->kind == MEV_WHEEL_DOWN);
+
     /* Right-click opens the Edit menu; right-click with a menu open just closes it */
     if (ev->kind == MEV_RIGHT_PRESS) {
         dragging = 0;
