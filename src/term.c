@@ -380,6 +380,15 @@ static int posix_getc(void) {
     return ch;
 }
 
+/* The byte after ESC (Alt+key, Esc-[ ...) can be late right after the window
+   regains focus. A single read gives up after VTIME (0.1 s), so the ESC would
+   register as a bare Esc and the letter would be typed. Retry for about 0.3 s. */
+static int esc_follow_getc(void) {
+    int ch = EOF;
+    for (int i = 0; i < 3 && ch == EOF; i++) ch = posix_getc();
+    return ch;
+}
+
 int kbhit() {
     int ch = posix_getc();
     if (ch != EOF) {
@@ -403,7 +412,7 @@ int getch_cp() {
             /* ESC: a mouse report (ESC [ < ...) is swallowed like on Windows, so it
                neither cancels the prompt nor gets typed. Anything else is put back
                and returned as Esc. */
-            int a = posix_getc();
+            int a = esc_follow_getc();
             if (a == '[') {
                 int b = posix_getc();
                 if (b == '<') {
@@ -672,7 +681,7 @@ static int read_key_any(void) {
     }
 
     // Begin parsing escape sequences
-    int a = getch_impl();
+    int a = esc_follow_getc();   // retries: the byte after ESC can be late (see esc_follow_getc)
     if (a == EOF) return KEY_ESC; // Bare ESC
 
     if (a == '[') {
