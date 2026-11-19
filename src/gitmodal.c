@@ -605,7 +605,7 @@ static void load_branches(void) {
     if (!pick_merge) add_pick(NULL);
 
     char *out = NULL;
-    int rc = run_cmd("git branch", &out);
+    int rc = run_cmd("git branch --sort=-committerdate", &out);
     if (rc != 0 || !out) {
         msg_from_output(out ? out : "", 0);
         free(out);
@@ -663,7 +663,7 @@ static void draw_pick(void) {
 
     draw_panel();
     put_row(screen_h - 2, options_base_sgr(), msg[0] ? msg : "");
-    put_row(screen_h - 1, options_chrome_sgr(CH_STATUS), " Enter Pick  Up/Down Move  Esc Back");
+    put_row(screen_h - 1, options_chrome_sgr(CH_STATUS), " Enter/Click Pick  Up/Down/Wheel Move  Esc Back");
     fb_flush();
 }
 
@@ -1377,7 +1377,7 @@ void git_modal(void) {
         if (picking) {
             pick_clamp();
             draw_pick();
-            key = read_key();
+            key = read_key_wait(-1);   /* not read_key(): the branch list takes mouse clicks */
             if (key == -1) continue;
 
             switch (key) {
@@ -1385,6 +1385,18 @@ void git_modal(void) {
                 case KEY_UP:     psel--; break;
                 case KEY_DOWN:   psel++; break;
                 case KEY_ENTER:  pick_activate(); break;
+                case KEY_MOUSE: {
+                    MouseEvent ev;
+                    term_get_mouse(&ev);
+                    if (ev.kind == MEV_WHEEL_UP) psel--;
+                    else if (ev.kind == MEV_WHEEL_DOWN) psel++;
+                    else if (ev.kind == MEV_PRESS && ev.y >= 1 && ev.y - 1 < list_rows()
+                             && ptop + ev.y - 1 < npick) {
+                        psel = ptop + ev.y - 1;
+                        pick_activate();
+                    }
+                    break;
+                }
                 case KEY_RESIZE: term_update_size(); clear_screen(); break;
                 default: break;
             }
