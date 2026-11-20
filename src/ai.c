@@ -692,6 +692,15 @@ static const ToolSpec TOOL_SPECS[] = {
       "[\"pattern\"]" },
     { "open_tabs", "List the files open in the editor and whether each has unsaved changes.",
       "{}", "[]" },
+    { "write_file", "Create a NEW file that is not open in the editor. It opens as an unsaved tab for the user to review and save. Fails if the file already exists (use edit_file). Never use it for the active file.",
+      "{\"path\":{\"type\":\"string\",\"description\":\"New file path relative to the project root\"},"
+      "\"content\":{\"type\":\"string\",\"description\":\"Complete contents of the new file\"}}",
+      "[\"path\",\"content\"]" },
+    { "edit_file", "Edit an existing file that is not open in the editor by replacing text. old_string must match exactly one place in the file. The edited file opens as an unsaved tab for the user to review and save. Never use it for the active file.",
+      "{\"path\":{\"type\":\"string\",\"description\":\"File path relative to the project root\"},"
+      "\"old_string\":{\"type\":\"string\",\"description\":\"Exact text to replace (with enough context to be unique)\"},"
+      "\"new_string\":{\"type\":\"string\",\"description\":\"Replacement text\"}}",
+      "[\"path\",\"old_string\",\"new_string\"]" },
 };
 #define N_TOOL_SPECS ((int)(sizeof TOOL_SPECS / sizeof TOOL_SPECS[0]))
 

@@ -93,6 +93,48 @@ int main(void) {
     expect_has("run read", aitools_run("read_file", "{\"path\":\"src/a.c\",\"start_line\":4}"), "4: four");
     expect("run unknown", aitools_run("rm_rf", "{}") == NULL);
 
+    /* Write support */
+    char ab[1024];
+    expect("rw new file", aitools_resolve_write("src/new.c", ab, sizeof ab) == NULL && strstr(ab, "/proj/src/new.c"));
+    expect("rw new nested", aitools_resolve_write("fresh/dir/x.c", ab, sizeof ab) == NULL);
+    expect("rw existing", aitools_resolve_write("src/a.c", ab, sizeof ab) == NULL);
+    expect("rw hidden", aitools_resolve_write(".env", ab, sizeof ab) != NULL);
+    expect("rw dotdot", aitools_resolve_write("../x", ab, sizeof ab) != NULL);
+    expect("rw abs", aitools_resolve_write("/etc/x", ab, sizeof ab) != NULL);
+    expect("rw build", aitools_resolve_write("build/y.c", ab, sizeof ab) != NULL);
+    expect("rw dir leaf", aitools_resolve_write("src", ab, sizeof ab) != NULL && aitools_resolve_write("src/", ab, sizeof ab) != NULL);
+    expect("rw symlink escape", aitools_resolve_write("escape/new.txt", ab, sizeof ab) != NULL);
+    expect("rw empty", aitools_resolve_write("", ab, sizeof ab) != NULL);
+    aitools_resolve_write("fresh/dir/x.c", ab, sizeof ab);
+    expect("make parents", aitools_make_parents(ab) == 0);
+    snprintf(buf, sizeof buf, "%s/proj/fresh/dir", outer);
+    { struct stat st; expect("parents exist", stat(buf, &st) == 0 && S_ISDIR(st.st_mode)); }
+    aitools_resolve_write("src/a.c", ab, sizeof ab);
+    {
+        const char *err = NULL;
+        char *t = aitools_load_text(ab, &err);
+        expect("load text", t && strstr(t, "two needle"));
+        free(t);
+        aitools_resolve_write("bin.dat", ab, sizeof ab);
+        t = aitools_load_text(ab, &err);
+        expect("load binary refused", t == NULL && err);
+    }
+    {
+        const char *err = NULL;
+        char *r = aitools_replace_once("a b a", "b", "X", &err);
+        expect("replace one", r && strcmp(r, "a X a") == 0);
+        free(r);
+        r = aitools_replace_once("a b a", "a", "X", &err);
+        expect("replace many refused", r == NULL && strstr(err, "more than once"));
+        r = aitools_replace_once("a b a", "zz", "X", &err);
+        expect("replace none refused", r == NULL && strstr(err, "not found"));
+        r = aitools_replace_once("a b a", "", "X", &err);
+        expect("replace empty refused", r == NULL);
+        r = aitools_replace_once("a b a", "b", "", &err);
+        expect("replace delete", r && strcmp(r, "a  a") == 0);
+        free(r);
+    }
+
     if (failures == 0) printf("test_aitools: all passed\n");
     return failures ? 1 : 0;
 }

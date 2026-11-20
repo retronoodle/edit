@@ -22,6 +22,9 @@ void aitools_set_root(void) {}
 char *aitools_list_dir(const char *rel) { (void)rel; return strdup("Error: tools are not available on Windows"); }
 char *aitools_read_file(const char *rel, int s, int m) { (void)rel; (void)s; (void)m; return strdup("Error: tools are not available on Windows"); }
 char *aitools_grep(const char *p, const char *rel) { (void)p; (void)rel; return strdup("Error: tools are not available on Windows"); }
+const char *aitools_resolve_write(const char *rel, char *a, int n) { (void)rel; (void)a; (void)n; return "tools are not available on Windows"; }
+int aitools_make_parents(const char *abs) { (void)abs; return -1; }
+char *aitools_load_text(const char *abs, const char **err) { (void)abs; *err = "tools are not available on Windows"; return NULL; }
 
 #else
 
@@ -138,6 +141,65 @@ static const char *resolve(const char *rel, char *out) {
     if (strncmp(real, root, rl) != 0 || (real[rl] != '\0' && real[rl] != '/')) return "path not allowed";
     snprintf(out, MAX_PATH_LEN, "%s", real);
     return NULL;
+}
+
+static int is_binary(FILE *f);
+
+const char *aitools_resolve_write(const char *rel, char *abs_out, int size) {
+    if (!root[0]) return "no project folder";
+    if (!rel || !rel[0] || !aitools_path_ok(rel)) return "path not allowed";
+    size_t rn = strlen(rel);
+    if (rel[rn - 1] == '/') return "path must be a file";
+    char joined[MAX_PATH_LEN * 2];
+    int n = snprintf(joined, sizeof joined, "%s/%s", root, rel);
+    if (n < 0 || n >= MAX_PATH_LEN || n >= size) return "path too long";
+    /* The nearest parent that exists must resolve inside the root (no link escapes). */
+    char probe[MAX_PATH_LEN * 2], real[MAX_PATH_LEN];
+    snprintf(probe, sizeof probe, "%s", joined);
+    size_t rl = strlen(root);
+    for (;;) {
+        char *slash = strrchr(probe, '/');
+        if (!slash || (size_t)(slash - probe) < rl) return "path not allowed";
+        *slash = '\0';
+        if (realpath(probe, real)) break;
+    }
+    if (strncmp(real, root, rl) != 0 || (real[rl] != '\0' && real[rl] != '/')) return "path not allowed";
+    struct stat st;
+    if (lstat(joined, &st) == 0 && !S_ISREG(st.st_mode)) return "not a regular file";
+    snprintf(abs_out, size, "%s", joined);
+    return NULL;
+}
+
+int aitools_make_parents(const char *abs) {
+    char tmp[MAX_PATH_LEN * 2];
+    snprintf(tmp, sizeof tmp, "%s", abs);
+    for (char *p = tmp + strlen(root) + 1; *p; p++) {
+        if (*p != '/') continue;
+        *p = '\0';
+        struct stat st;
+        if (stat(tmp, &st) != 0) {
+            if (mkdir(tmp, 0755) != 0) return -1;
+        } else if (!S_ISDIR(st.st_mode)) {
+            return -1;
+        }
+        *p = '/';
+    }
+    return 0;
+}
+
+char *aitools_load_text(const char *abs, const char **err) {
+    struct stat st;
+    if (stat(abs, &st) != 0 || !S_ISREG(st.st_mode)) { *err = "no such file"; return NULL; }
+    if (st.st_size > MAX_FILE_BYTES) { *err = "file too large"; return NULL; }
+    FILE *f = fopen(abs, "rb");
+    if (!f) { *err = "cannot open file"; return NULL; }
+    if (is_binary(f)) { fclose(f); *err = "binary file"; return NULL; }
+    char *buf = malloc((size_t)st.st_size + 1);
+    if (!buf) { fclose(f); *err = "out of memory"; return NULL; }
+    size_t got = fread(buf, 1, (size_t)st.st_size, f);
+    fclose(f);
+    buf[got] = '\0';
+    return buf;
 }
 
 static int cmp_str(const void *a, const void *b) {
@@ -338,6 +400,23 @@ char *aitools_grep(const char *pattern, const char *rel) {
 }
 
 #endif /* !_WIN32 */
+
+char *aitools_replace_once(const char *text, const char *old, const char *repl, const char **err) {
+    if (!old || !*old) { *err = "old_string is empty"; return NULL; }
+    const char *hit = strstr(text, old);
+    if (!hit) { *err = "old_string not found (it must match exactly, including whitespace)"; return NULL; }
+    size_t ol = strlen(old);
+    if (strstr(hit + ol, old)) { *err = "old_string matches more than once; include more surrounding lines"; return NULL; }
+    size_t tl = strlen(text), rl = repl ? strlen(repl) : 0;
+    if (tl - ol + rl > MAX_FILE_BYTES) { *err = "result too large"; return NULL; }
+    char *out = malloc(tl - ol + rl + 1);
+    if (!out) { *err = "out of memory"; return NULL; }
+    size_t pre = (size_t)(hit - text);
+    memcpy(out, text, pre);
+    if (rl) memcpy(out + pre, repl, rl);
+    memcpy(out + pre + rl, hit + ol, tl - pre - ol + 1);
+    return out;
+}
 
 static int arg_int(const char *args, const char *key) {
     char *raw = ai_json_get_raw(args, key);

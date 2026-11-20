@@ -23,6 +23,24 @@ char *aitools_read_file(const char *rel, int start_line, int max_lines);
 /* rel may be "" (whole project), a folder or a file. Plain substring match. */
 char *aitools_grep(const char *pattern, const char *rel);
 
+#define AITOOLS_MAX_WRITE 100000   /* bytes of text one write_file/edit_file may produce */
+
+/* Writing support for the chat (the tools only queue text; the chat opens it as unsaved tabs,
+   nothing here writes a file). All POSIX only; Windows answers with an error.
+   Resolves rel for a file to create or edit: same name rules as the read tools, the nearest
+   existing parent folder must be inside the root, and the file itself must not be a link or
+   a folder. abs_out gets the root-joined absolute path. Returns NULL on success, else an
+   error text (static). */
+const char *aitools_resolve_write(const char *rel, char *abs_out, int size);
+/* Creates the missing parent folders of abs (a path from aitools_resolve_write). 0 on success. */
+int aitools_make_parents(const char *abs);
+/* Reads an existing text file (not binary, under 1 MB) for editing. malloc'd, or NULL with
+   *err set to a static message. */
+char *aitools_load_text(const char *abs, const char **err);
+/* Pure: replaces the one occurrence of old in text by repl. Returns malloc'd text, or NULL with
+   *err set (not found, found more than once, old empty, too big, out of memory). */
+char *aitools_replace_once(const char *text, const char *old, const char *repl, const char **err);
+
 /* Runs list_dir, read_file or grep by name with a JSON args object. Returns NULL for any
    other name (the caller handles it). */
 char *aitools_run(const char *name, const char *args_json);

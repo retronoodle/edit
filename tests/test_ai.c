@@ -330,6 +330,9 @@ int main(void) {
         char *tj = ai_chat_tools_json("anthropic");
         char *nm = ai_json_get_string(tj, "3.name");
         if (!nm || strcmp(nm, "open_tabs") != 0) { printf("FAIL tools anth\n"); failures++; }
+        free(nm);
+        nm = ai_json_get_string(tj, "5.name");
+        if (!nm || strcmp(nm, "edit_file") != 0) { printf("FAIL tools anth edit_file\n"); failures++; }
         free(nm); free(tj);
         tj = ai_chat_tools_json("openai");
         nm = ai_json_get_string(tj, "1.function.name");

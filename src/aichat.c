@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include "editor.h"
 #include "term.h"
@@ -22,6 +23,7 @@
 #include "chatmd.h"
 #include "clipboard.h"
 #include "clipcodec.h"
+#include "files.h"
 #include "msgedit.h"
 #include "options.h"
 #include "syntax.h"
@@ -40,13 +42,15 @@
 static const char CHAT_SYSTEM[] =
     "You are an AI assistant inside the velo text editor, chatting with the user about their "
     "open files. Each user message includes the active file's current contents. When more "
-    "context would help you can look around the project with the read-only tools list_dir, "
+    "context would help you can look around the project with the tools list_dir, "
     "read_file, grep and open_tabs; do not read files you do not need.\n"
     "To change the active file, reply with a short explanation and then the COMPLETE new "
     "contents of the active file in ONE fenced code block (use a four-backtick fence if the "
     "file itself contains triple backticks). The user reviews it and applies it. Use a fenced "
-    "block for nothing else: show short snippets inline, never fenced. You cannot create or "
-    "edit other files; if they need changes, describe them. Keep replies brief.";
+    "block for nothing else: show short snippets inline, never fenced. To create a new file "
+    "use write_file, and to change a file that is not open use edit_file (read it first); "
+    "these open as unsaved tabs the user reviews and saves. Never use them on the active "
+    "file; use the fenced block for that. Keep replies brief.";
 
 /* ---- State ---- */
 
@@ -489,8 +493,125 @@ static char *file_context(int *truncated) {
     return all;
 }
 
+/* Files the model asked to create or edit this turn. Tools only queue them; they open as
+   unsaved tabs after the turn so the active-file proposal stays bound to its tab. */
+#define MAX_PENDING 8
+typedef struct { char rel[256]; char abs[1024]; char *text; int is_new; } PendingFile;
+static PendingFile pending[MAX_PENDING];
+static int n_pending = 0;
+
+static void pending_clear(void) {
+    for (int i = 0; i < n_pending; i++) free(pending[i].text);
+    n_pending = 0;
+}
+
+static char *err_str(const char *msg) {
+    char tmp[300];
+    snprintf(tmp, sizeof tmp, "Error: %s", msg);
+    return strdup(tmp);
+}
+
+/* write_file / edit_file: validate and queue. Returns the result text for the model. */
+static char *queue_write(const AiToolCall *c, int is_edit) {
+    char *path = ai_json_get_string(c->args, "path");
+    char *out = NULL;
+    char *text = NULL;
+    char abs[1024];
+    const char *e = aitools_resolve_write(path ? path : "", abs, sizeof abs);
+    if (e) { out = err_str(e); goto end; }
+    if (tab_find(abs) >= 0) {
+        out = err_str("that file is open in a tab; the user must make it the active file and ask again");
+        goto end;
+    }
+    int slot = -1;
+    for (int i = 0; i < n_pending; i++)
+        if (strcmp(pending[i].abs, abs) == 0) slot = i;
+    if (is_edit) {
+        char *old = ai_json_get_string(c->args, "old_string");
+        char *repl = ai_json_get_string(c->args, "new_string");
+        const char *err = NULL;
+        char *base = NULL;
+        if (slot >= 0) base = strdup(pending[slot].text);
+        else base = aitools_load_text(abs, &err);
+        if (base) text = aitools_replace_once(base, old, repl ? repl : "", &err);
+        free(base);
+        free(old);
+        free(repl);
+        if (!text) { out = err_str(err ? err : "out of memory"); goto end; }
+    } else {
+        struct stat st;
+        char *content = ai_json_get_string(c->args, "content");
+        if (slot >= 0 || stat(abs, &st) == 0) {
+            free(content);
+            out = err_str("file already exists; use edit_file");
+            goto end;
+        }
+        if (!content || strlen(content) > AITOOLS_MAX_WRITE) {
+            free(content);
+            out = err_str("content missing or too large");
+            goto end;
+        }
+        text = content;
+    }
+    if (slot < 0) {
+        if (n_pending >= MAX_PENDING) { out = err_str("too many files in one turn"); goto end; }
+        slot = n_pending++;
+        pending[slot].text = NULL;
+        pending[slot].is_new = !is_edit;
+        snprintf(pending[slot].rel, sizeof pending[slot].rel, "%s", path);
+        snprintf(pending[slot].abs, sizeof pending[slot].abs, "%s", abs);
+    }
+    free(pending[slot].text);
+    pending[slot].text = text;
+    text = NULL;
+    out = strdup(is_edit ? "OK: edit queued; the file opens in the editor as an unsaved tab."
+                         : "OK: new file queued; it opens in the editor as an unsaved tab.");
+end:
+    free(text);
+    free(path);
+    return out ? out : strdup("Error: out of memory");
+}
+
+static void apply_whole(const char *text);
+static int apply_hunks(const char *cur, const char *text);
+
+/* Opens each queued file as a tab with its new text as one undo step (nothing is saved). */
+static void open_pending(void) {
+    for (int i = 0; i < n_pending; i++) {
+        PendingFile *p = &pending[i];
+        if (!p->is_new) {
+            /* open_path loads the disk text; Ctrl+Z then returns to it. */
+        } else if (aitools_make_parents(p->abs) != 0) {
+            add_entry(E_ERR, "! ", "Could not create the folder for a new file.");
+            continue;
+        }
+        char *clean = p->text;
+        if (!open_path(p->abs, 1)) {
+            add_entry(E_ERR, "! ", "Could not open a tab for the file (tab limit?).");
+            break;
+        }
+        char *cur = doc_text();
+        int n = cur ? apply_hunks(cur, clean) : -1;
+        free(cur);
+        char *now = doc_text();
+        if (n < 0 || !now || strcmp(now, clean) != 0) {
+            if (n > 0) undo_undo();
+            apply_whole(clean);
+        }
+        free(now);
+        sel_clear();
+        editor.cursor_y = 0;
+        editor.cursor_x = 0;
+        char msg[400];
+        snprintf(msg, sizeof msg, "Opened %s as an unsaved tab (%s).", p->rel, p->is_new ? "new file" : "edited");
+        add_entry(E_INFO, "", msg);
+    }
+}
+
 /* Result text for one tool call. Always malloc'd. */
 static char *run_tool(const AiToolCall *c) {
+    if (strcmp(c->name, "write_file") == 0) return queue_write(c, 0);
+    if (strcmp(c->name, "edit_file") == 0) return queue_write(c, 1);
     if (strcmp(c->name, "open_tabs") == 0) {
         size_t cap = 256 + (size_t)tab_count() * 300;
         char *s = malloc(cap);
@@ -517,6 +638,8 @@ static void describe_call(const AiToolCall *c, char *buf, int size) {
         snprintf(buf, size, "grep \"%s\"%s%s", pat ? pat : "", path && *path ? " in " : "", path ? path : "");
     else if (strcmp(c->name, "open_tabs") == 0)
         snprintf(buf, size, "looked at open tabs");
+    else if (strcmp(c->name, "write_file") == 0 || strcmp(c->name, "edit_file") == 0)
+        snprintf(buf, size, "%s %s", c->name[0] == 'w' ? "create" : "edit", path && *path ? path : "?");
     else
         snprintf(buf, size, "%s %s", strcmp(c->name, "read_file") == 0 ? "read" : c->name,
                  path && *path ? path : ".");
@@ -556,6 +679,7 @@ static void send_message(void) {
     msgedit_clear(&input);
     if (!msg) return;
     drop_proposal();
+    pending_clear();
     add_entry(E_USER, "You: ", msg);
 
     int truncated;
@@ -715,6 +839,22 @@ done:
             add_entry(E_AI, "", reply);
             kept = strdup(reply);
         }
+        if (n_pending > 0) {
+            /* Tool exchanges are not kept, so note the files in the history. */
+            char note[1200] = "";
+            for (int i = 0; i < n_pending; i++) {
+                char one[300];
+                snprintf(one, sizeof one, "\n[%s %s]", pending[i].is_new ? "created" : "edited", pending[i].rel);
+                if (strlen(note) + strlen(one) < sizeof note) strcat(note, one);
+            }
+            char *k2 = malloc((kept ? strlen(kept) : 0) + strlen(note) + 1);
+            if (k2) {
+                strcpy(k2, kept ? kept : "");
+                strcat(k2, note);
+                free(kept);
+                kept = k2;
+            }
+        }
         hist_push(ai_chat_text_msg("user", msg));
         hist_push(ai_chat_text_msg("assistant", kept ? kept : ""));
         hist_trim();
@@ -723,6 +863,18 @@ done:
     }
     free(reply);
     free(msg);
+    if (n_pending > 0 && !ok) {
+        pending_clear();   /* failed or cancelled turn: open nothing */
+    } else if (n_pending > 0) {
+        int start_tab = tab_current();
+        if (prop_text && tab_is_blank() && !tab_new()) {   /* keep the proposal's tab out of reuse */
+            add_entry(E_ERR, "! ", "Tab limit reached, so the new files were not opened.");
+        } else {
+            open_pending();
+            tab_switch(prop_text ? prop_tab : start_tab);   /* back to where the turn started */
+        }
+        pending_clear();
+    }
 }
 
 /* ---- Applying and reviewing a proposal ---- */
