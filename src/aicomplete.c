@@ -7,6 +7,7 @@
 #include "ui.h"
 #include "utf8.h"
 #include "ai.h"
+#include "aiinstr.h"
 #include "aiasync.h"
 #include "aiedit.h"
 #include "aicomplete.h"
@@ -51,7 +52,9 @@ void aicomplete_request(void) {
         return;
     }
     char err[256];
-    int rc = aiasync_start(COMPLETE_SYSTEM, input, COMPLETE_MAX_TOKENS, err, sizeof err);
+    char *sys = aiinstr_system(COMPLETE_SYSTEM, SMALL_AGENTS_FILE, SMALL_AGENTS_CAP);
+    int rc = aiasync_start(sys ? sys : COMPLETE_SYSTEM, input, COMPLETE_MAX_TOKENS, err, sizeof err);
+    free(sys);
     free(input);
     if (rc != 0) {
         show_message(err);

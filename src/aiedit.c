@@ -8,6 +8,7 @@
 #include "term.h"
 #include "ui.h"
 #include "ai.h"
+#include "aiinstr.h"
 #include "aiask.h"
 #include "aiedit.h"
 #include "clipboard.h"
@@ -99,7 +100,9 @@ void ai_ask_selection(void) {
 
     char *out = NULL;
     char err[256];
-    int rc = ai_ask(AI_ASK_SYSTEM, input, &out, err, sizeof(err));
+    char *sys = aiinstr_system(AI_ASK_SYSTEM, SMALL_AGENTS_FILE, SMALL_AGENTS_CAP);
+    int rc = ai_ask(sys ? sys : AI_ASK_SYSTEM, input, &out, err, sizeof(err));
+    free(sys);
     free(input);
     if (rc != 0) {
         show_message(err);

@@ -8,6 +8,7 @@
 #include "term.h"
 #include "ui.h"
 #include "ai.h"
+#include "aiinstr.h"
 #include "aiask.h"
 #include "aiexplain.h"
 #include "clipboard.h"
@@ -60,7 +61,9 @@ void ai_explain_selection(void) {
 
     char *out = NULL;
     char err[256];
-    int rc = ai_ask(EXPLAIN_SYSTEM, sel, &out, err, sizeof(err));
+    char *sys = aiinstr_system(EXPLAIN_SYSTEM, SMALL_AGENTS_FILE, SMALL_AGENTS_CAP);
+    int rc = ai_ask(sys ? sys : EXPLAIN_SYSTEM, sel, &out, err, sizeof(err));
+    free(sys);
     free(sel);
     if (rc != 0) {
         show_message(err);

@@ -11,6 +11,7 @@
 #include "term.h"
 #include "ui.h"
 #include "ai.h"
+#include "aiinstr.h"
 #include "aiask.h"
 #include "aichat.h"
 #include "aiedit.h"
@@ -572,6 +573,7 @@ static void send_message(void) {
     char **work = malloc(cap_work * sizeof *work);
     char *reply = NULL;
     int ok = 0;
+    char *sys = aiinstr_system(CHAT_SYSTEM, AGENTS_FILE, AGENTS_CAP);
     if (!work || !full) {
         add_entry(E_ERR, "! ", "Out of memory.");
         goto done;
@@ -596,7 +598,7 @@ static void send_message(void) {
         }
         char *raw = NULL;
         char err[256];
-        if (ai_ask_chat(CHAT_SYSTEM, (const char *const *)work, nwork, use_tools, &raw, err, sizeof err) != 0) {
+        if (ai_ask_chat(sys ? sys : CHAT_SYSTEM, (const char *const *)work, nwork, use_tools, &raw, err, sizeof err) != 0) {
             if (use_tools && step == 0 && (strncmp(err, "HTTP 400", 8) == 0 || strncmp(err, "HTTP 404", 8) == 0 ||
                               strncmp(err, "HTTP 422", 8) == 0)) {
                 /* Some models/servers reject tool definitions: chat without file access. */
@@ -661,6 +663,7 @@ done:
         free(work);
     }
     free(full);
+    free(sys);
     if (ok && reply) {
         int span[4];
         char *shown = NULL, *kept = NULL;

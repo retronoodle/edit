@@ -15,6 +15,7 @@
 #include "aicomplete.h"
 #include "aichat.h"
 #include "aitools.h"
+#include "aiinstr.h"
 #include "aiexplain.h"
 #include "files.h"
 #include "undo.h"
@@ -100,6 +101,7 @@ int main(int argc, char *argv[]) {
     tabs_init();
     recent_load();
     options_load();   /* before opening files: a file's own line endings still win */
+    aiinstr_set_root();
     aitools_set_root();     /* the AI chat's file tools stay inside this folder */
     quickopen_set_root();   /* Ctrl+P searches from here, whatever folder the browser visits */
 
