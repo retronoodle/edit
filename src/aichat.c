@@ -15,6 +15,7 @@
 #include "aichat.h"
 #include "aiedit.h"
 #include "aitools.h"
+#include "chatmd.h"
 #include "clipboard.h"
 #include "clipcodec.h"
 #include "msgedit.h"
@@ -49,6 +50,7 @@ typedef enum { E_USER, E_AI, E_TOOL, E_INFO, E_ERR } EntryKind;
 typedef struct {
     EntryKind kind;
     char *text;
+    unsigned char *style;   /* CM_* per byte of text, or NULL */
 } Entry;
 
 static Entry *entries = NULL;
@@ -102,8 +104,19 @@ static void add_entry(EntryKind kind, const char *prefix, const char *text) {
     strcpy(full, prefix);
     strcat(full, body);
     free(body);
+    unsigned char *style = NULL;
+    if (kind == E_AI) {
+        char *md;
+        unsigned char *ms;
+        if (chatmd_render(full, &md, &ms)) {
+            free(full);
+            full = md;
+            style = ms;
+        }
+    }
     entries[n_entries].kind = kind;
     entries[n_entries].text = full;
+    entries[n_entries].style = style;
     n_entries++;
     back = 0;
 }
@@ -121,6 +134,22 @@ static void hist_push(char *msg) {   /* takes ownership */
         cap_hist = nc;
     }
     hist[n_hist++] = msg;
+}
+
+static void drop_proposal(void);
+
+/* Starts a fresh chat: clears the log, the kept history and any pending proposal. */
+static void new_chat(void) {
+    for (int i = 0; i < n_entries; i++) {
+        free(entries[i].text);
+        free(entries[i].style);
+    }
+    n_entries = 0;
+    for (int i = 0; i < n_hist; i++) free(hist[i]);
+    n_hist = 0;
+    drop_proposal();
+    back = 0;
+    add_entry(E_INFO, "", "Started a new chat.");
 }
 
 /* Drops the oldest exchanges so the history starts with a user message and stays short. */
@@ -229,6 +258,7 @@ static void layout(Layout *L) {
 /* One wrapped display row of the history. */
 typedef struct {
     const char *p;
+    const unsigned char *st;   /* style bytes for p, or NULL */
     int len;
     EntryKind kind;
     int blank;   /* spacer row */
@@ -237,7 +267,7 @@ typedef struct {
 static DRow *rows = NULL;
 static int n_rows = 0, cap_rows = 0;
 
-static int row_push(const char *p, int len, EntryKind kind, int blank) {
+static int row_push(const char *p, const unsigned char *st, int len, EntryKind kind, int blank) {
     if (n_rows == cap_rows) {
         int nc = cap_rows ? cap_rows * 2 : 64;
         DRow *nr = realloc(rows, nc * sizeof *nr);
@@ -246,6 +276,7 @@ static int row_push(const char *p, int len, EntryKind kind, int blank) {
         cap_rows = nc;
     }
     rows[n_rows].p = p;
+    rows[n_rows].st = st;
     rows[n_rows].len = len;
     rows[n_rows].kind = kind;
     rows[n_rows].blank = blank;
@@ -262,16 +293,20 @@ static void build_rows(int cw) {
         for (;;) {
             const char *nl = memchr(t + pos, '\n', tl - pos);
             int ll = nl ? (int)(nl - (t + pos)) : tl - pos;
-            int nr = utf8_wrap_rows(t + pos, ll, cw);
-            for (int r = 0; r < nr; r++) {
-                int s, e, c0;
-                utf8_wrap_row(t + pos, ll, cw, r, &s, &e, &c0);
-                if (!row_push(t + pos + s, e - s, entries[i].kind, 0)) return;
-            }
+            const unsigned char *sty = entries[i].style;
+            int word = entries[i].kind != E_TOOL;
+            if (word && sty && ll > 0 && sty[pos] == CM_CODE && sty[pos + ll - 1] == CM_CODE)
+                word = 0;   /* fenced code: wrap by character, keep spaces */
+            int rp = 0;
+            do {
+                int e, nx = chatmd_row(t + pos, ll, rp, cw, word, &e);
+                if (!row_push(t + pos + rp, sty ? sty + pos + rp : NULL, e - rp, entries[i].kind, 0)) return;
+                rp = nx;
+            } while (rp < ll);
             if (!nl) break;
             pos += ll + 1;
         }
-        if (entries[i].kind != E_TOOL) row_push("", 0, entries[i].kind, 1);
+        if (entries[i].kind != E_TOOL) row_push("", NULL, 0, entries[i].kind, 1);
     }
 }
 
@@ -292,6 +327,33 @@ static void put_border(void) {
     fb_puts("\xe2\x94\x82");
     fb_puts(options_base_sgr());
     fb_puts(" ");
+}
+
+/* SGR for a CM_* style on top of the entry kind's own look. */
+static const char *style_sgr(int st) {
+    static char buf[160];
+    char *b = buf;
+    b += sprintf(b, "%s", options_base_sgr());
+    if (st & CM_BOLD) b += sprintf(b, "\x1b[1m");
+    if (st & CM_ITALIC) b += sprintf(b, "\x1b[3m");
+    if (st & CM_DIM) b += sprintf(b, "%s", options_chrome_sgr(CH_DIM));
+    if (st & CM_HEAD) b += sprintf(b, "%s", syntax_sgr(TK_HEADING, options.scheme));
+    else if (st & CM_CODE) b += sprintf(b, "%s", syntax_sgr(TK_STRING, options.scheme));
+    return buf;
+}
+
+/* A history row with Markdown styles: runs of equal style, then padding. */
+static void put_styled(const char *p, const unsigned char *st, int len, int cw) {
+    int i = 0;
+    while (i < len) {
+        int j = i;
+        while (j < len && st[j] == st[i]) j++;
+        fb_puts(style_sgr(st[i]));
+        fb_write(p + i, j - i);
+        i = j;
+    }
+    fb_puts(options_base_sgr());
+    for (int w = utf8_width(p, len); w < cw; w++) fb_write(" ", 1);
 }
 
 /* Writes text[0..len) then pads with spaces to cw columns. */
@@ -326,7 +388,8 @@ void aichat_draw(void) {
         int i = first + r;
         if (i < n_rows && !rows[i].blank) {
             fb_puts(kind_sgr(rows[i].kind));
-            put_padded(rows[i].p, rows[i].len, L.cw);
+            if (rows[i].st) put_styled(rows[i].p, rows[i].st, rows[i].len, L.cw);
+            else put_padded(rows[i].p, rows[i].len, L.cw);
             fb_puts(options_base_sgr());
         } else {
             put_padded("", 0, L.cw);
@@ -367,7 +430,7 @@ void aichat_draw(void) {
 
     /* Hint */
     const char *hint = prop_text ? "^S apply  ^E diff  ^R drop"
-                     : has_focus ? "Enter send  ^N newline  Esc back"
+                     : has_focus ? "Enter send ^N newline ^L new"
                                  : "Alt+J to type here";
     fb_gotoxy(L.x0, L.hint_row);
     put_border();
@@ -759,6 +822,16 @@ int aichat_key(int key) {
     case KEY_DOWN:  msgedit_down(&input); return 1;
     case KEY_SHIFT_UP:   back += 3; return 1;
     case KEY_SHIFT_DOWN: back = back > 3 ? back - 3 : 0; return 1;
+    case KEY_CTRL_L: {
+        char ans[8];
+        if (n_hist > 0 || prop_text) {
+            if (!prompt_line("Start a new chat? History and proposal are lost (y/n): ", ans, sizeof ans) ||
+                (ans[0] != 'y' && ans[0] != 'Y'))
+                return 1;
+        }
+        new_chat();
+        return 1;
+    }
     case KEY_CTRL_N: msgedit_insert_cp(&input, '\n'); return 1;
     case KEY_CTRL_S:
         if (!prop_text) return 0;   /* nothing to apply: let Ctrl+S save the file */

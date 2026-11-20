@@ -70,6 +70,7 @@ void set_line_wrap(int enable);
 #define KEY_CTRL_W (KEY_BASE + 1214)
 #define KEY_CTRL_E (KEY_BASE + 1215)
 #define KEY_CTRL_P (KEY_BASE + 1216)
+#define KEY_CTRL_L (KEY_BASE + 1217)
 #define KEY_ALT_F (KEY_BASE + 1301)
 #define KEY_ALT_E (KEY_BASE + 1302)
 #define KEY_ALT_S (KEY_BASE + 1303)

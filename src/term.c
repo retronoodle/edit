@@ -536,6 +536,7 @@ int read_key_wait(int ms) {
         case 1:   return KEY_CTRL_A;
         case 23:  return KEY_CTRL_W;
         case 16:  return KEY_CTRL_P;
+        case 12:  return KEY_CTRL_L;
         default:  return ch;   /* printable text, any Unicode code point */
     }
 }
@@ -667,6 +668,7 @@ static int read_key_any(void) {
     if (ch == 1) return KEY_CTRL_A;
     if (ch == 23) return KEY_CTRL_W;
     if (ch == 16) return KEY_CTRL_P;
+    if (ch == 12) return KEY_CTRL_L;
 
     if (ch >= 0xC2 && ch <= 0xF4) {   // UTF-8 lead byte: return the code point
         int need = ch >= 0xF0 ? 3 : ch >= 0xE0 ? 2 : 1;

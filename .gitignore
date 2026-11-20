@@ -23,3 +23,5 @@ test_gitpush
 test_gitpush.exe
 test_msgedit
 test_msgedit.exe
+test_chatmd
+test_chatmd.exe
