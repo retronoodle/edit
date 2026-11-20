@@ -57,6 +57,7 @@ static int nfiles = 0;
 static const char *header = "";  /* "master...origin/master [ahead 1]" */
 static int unpushed = 0;         /* commits not on any remote (from header, or rev-list without an upstream) */
 static int in_repo = 0;
+static int have_origin = 0;      /* a remote named origin exists (set by load_status) */
 static int merging = 0;          /* a merge is stopped (MERGE_HEAD exists) */
 static int top = 0;             /* first visible file row */
 static int sel = 0;             /* highlighted file (Up/Down move it, Space stages it) */
@@ -218,6 +219,7 @@ static void clear_status(void) {
     header = "";
     unpushed = 0;
     in_repo = 0;
+    have_origin = 0;
     merging = 0;
 }
 
@@ -243,6 +245,10 @@ static void load_status(void) {
     }
     in_repo = 1;
     text_buf = out;
+
+    char *ro = NULL;
+    have_origin = (run_cmd("git remote get-url origin", &ro) == 0);
+    free(ro);
 
     /* -q: no output, exit 0 only when a merge is in progress */
     char *mo = NULL;
@@ -530,7 +536,7 @@ static void draw(void) {
         const char *sgr = options_base_sgr();
         char row_sgr[64];
         if (!in_repo) {
-            if (i == 0) t = "  Open a file inside a git repository to see its status.";
+            if (i == 0) t = "  Not a git repository. Press I to create one here.";
         } else if (nfiles == 0) {
             if (i == 0) t = "  Working tree clean.";
         } else if (top + i < nfiles) {
@@ -567,8 +573,9 @@ static void draw(void) {
 
     const char *foot;
     if (box_open) foot = " Type to edit  Ctrl+S Commit  Esc Hide (keeps draft)";
-    else if (!in_repo) foot = " Esc Close";
+    else if (!in_repo) foot = " I Init repo  Esc Close";
     else if (merging) foot = " Space Stage  Enter Diff  S/U All  C Commit  D Draft  A Abort merge  R Refresh  Esc Close";
+    else if (!have_origin) foot = " Space Stage  Enter Diff  S/U All  C Commit  D Draft  N New remote  B Branch  M Merge  R Refresh  Esc Close";
     else foot = " Space Stage  Enter Diff  S/U All  C Commit  D Draft  P Push  B Branch  M Merge  R Refresh  Esc Close";
     put_row(screen_h - 1, options_chrome_sgr(CH_STATUS), foot);
     fb_flush();
@@ -1307,6 +1314,77 @@ static void do_push(void) {
     load_status();
 }
 
+/* ---- Init and new GitHub remote ---- */
+
+static void do_init(void) {
+    char ans[8] = "";
+    if (!prompt_line("Create a git repo in this folder? (y/N): ", ans, sizeof ans)
+        || (ans[0] != 'y' && ans[0] != 'Y')) {
+        set_msg("Cancelled.");
+        return;
+    }
+    if (run_git("git init", "git init") == 0) set_msg("Repo created. Press N to add a GitHub remote.");
+    load_status();
+}
+
+#ifndef _WIN32
+/* GitHub repo names: letters, digits, '.', '_' and '-'. */
+static int valid_repo_name(const char *s) {
+    if (!*s || s[0] == '-' || s[0] == '.' || strlen(s) > 100) return 0;
+    for (const char *q = s; *q; q++) {
+        if (!(isalnum((unsigned char)*q) || *q == '.' || *q == '_' || *q == '-')) return 0;
+    }
+    return 1;
+}
+#endif
+
+static void do_new_remote(void) {
+#ifdef _WIN32
+    set_msg("Creating a GitHub remote is not supported on Windows yet.");
+#else
+    char cwd[1024] = "";
+    char name[101] = "";
+    if (getcwd(cwd, sizeof cwd)) {
+        const char *base = strrchr(cwd, '/');
+        snprintf(name, sizeof name, "%s", base ? base + 1 : cwd);
+    }
+    if (!prompt_line_prefill("GitHub repo name: ", name, sizeof name)) {
+        set_msg("Cancelled.");
+        return;
+    }
+    if (!valid_repo_name(name)) { set_msg("Repo name not allowed (letters, digits, . _ -)."); return; }
+
+    char vis[16] = "";
+    if (!prompt_line_opt("Visibility, private or public (Enter = private): ", vis, sizeof vis)) {
+        set_msg("Cancelled.");
+        return;
+    }
+    const char *flag;
+    if (vis[0] == '\0' || strcmp(vis, "private") == 0) flag = "--private";
+    else if (strcmp(vis, "public") == 0) flag = "--public";
+    else { set_msg("Cancelled. Type private or public."); return; }
+
+    char *head = NULL;
+    int has_head = (run_cmd("git rev-parse --verify -q HEAD", &head) == 0);
+    free(head);
+    if (!has_head) { set_msg("Commit something first, then press N."); return; }
+
+    char *argv[] = { "gh", "repo", "create", name, (char *)flag, "--source=.",
+                     "--remote=origin", "--push", NULL };
+    int rc = run_argv("gh repo create", argv);
+    load_status();
+    if (rc == 127) {
+        set_msg("GitHub CLI (gh) not found. Install it and run gh auth login.");
+    } else if (rc == 0) {
+        set_msg("Remote created and pushed.");
+    } else if (have_origin) {
+        set_msg("Remote created, but the push failed. Press P to retry.");
+    } else {
+        set_msg("gh repo create failed. See the output panel.");
+    }
+#endif
+}
+
 /* Checks out an existing branch. Git refuses if local changes would be overwritten; its message is shown. */
 static void do_switch(const char *name) {
     if (!valid_branch_name(name)) { set_msg("Branch name not allowed."); return; }
@@ -1479,6 +1557,10 @@ void git_modal(void) {
             case 'E':        if (in_repo && have_draft()) box_open = 1; break;
             case 'p':
             case 'P':        if (in_repo) do_push(); break;
+            case 'i':
+            case 'I':        if (!in_repo) do_init(); break;
+            case 'n':
+            case 'N':        if (in_repo && !have_origin) do_new_remote(); break;
             case 'b':
             case 'B':        if (in_repo) open_pick(0); break;
             case 'm':
