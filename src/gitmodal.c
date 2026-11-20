@@ -27,6 +27,7 @@
 #include "tabs.h"
 #include "options.h"
 #include "aiask.h"
+#include "aiwait.h"
 #include "viewer.h"
 #include "syntax.h"
 #include "gitmodal.h"
@@ -1158,7 +1159,8 @@ static void do_draft_commit(void) {
     char *diff = NULL;
     if (get_diff(&diff) != 0) return;
 
-    set_msg("Thinking...");
+    /* The panel has its own layout, so no aiwait spinner here: just its message line */
+    set_msg("Drafting commit message...");
     draw();
 
     char *reply = NULL;

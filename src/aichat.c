@@ -17,6 +17,7 @@
 #include "buffer.h"
 #include "undo.h"
 #include "aiask.h"
+#include "aiwait.h"
 #include "aichat.h"
 #include "aiedit.h"
 #include "aitools.h"
@@ -475,6 +476,7 @@ static void status(const char *msg) {
     gotoxy(0, screen_h - 2);
     printf("%-*.*s", screen_w - 1, screen_w - 1, msg);
     fflush(stdout);
+    aiwait_begin(msg);
 }
 
 /* The active file as text (malloc'd), cut to FILE_CAP bytes on a character boundary.
@@ -785,6 +787,7 @@ static void send_message(void) {
     if (!ok) add_entry(E_ERR, "! ", "Stopped: too many tool steps without an answer.");
 
 done:
+    aiwait_end();
     if (work) {
         for (int i = base; i < nwork; i++) free(work[i]);
         free(work);

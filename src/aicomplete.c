@@ -9,6 +9,7 @@
 #include "ai.h"
 #include "aiinstr.h"
 #include "aiasync.h"
+#include "aiwait.h"
 #include "aiedit.h"
 #include "aicomplete.h"
 #include "clipboard.h"
@@ -28,6 +29,7 @@ static char *suggestion;       /* NULL when none */
 static int anchor_x, anchor_y; /* cursor when it was requested */
 
 void aicomplete_dismiss(void) {
+    aiwait_end();
     aiasync_cancel();
     free(suggestion);
     suggestion = NULL;
@@ -62,13 +64,19 @@ void aicomplete_request(void) {
     }
     anchor_x = x;
     anchor_y = y;
+    aiwait_begin("AI completing...");
 }
 
 int aicomplete_tick(void) {
     char *reply = NULL;
     char err[256];
     int r = aiasync_poll(&reply, err, sizeof err);
-    if (r == 0) return 0;
+    if (r == 0) {
+        if (aiasync_busy()) aiwait_tick();
+        else aiwait_end();   /* job gone without us ending it */
+        return 0;
+    }
+    aiwait_end();
     if (r < 0) {
         show_message(err);
         return 1;

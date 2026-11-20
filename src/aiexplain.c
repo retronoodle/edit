@@ -10,6 +10,7 @@
 #include "ai.h"
 #include "aiinstr.h"
 #include "aiask.h"
+#include "aiwait.h"
 #include "aiexplain.h"
 #include "clipboard.h"
 #include "viewer.h"
@@ -58,11 +59,13 @@ void ai_explain_selection(void) {
     gotoxy(0, screen_h - 2);
     printf("%-*s", screen_w - 1, "Thinking...");
     fflush(stdout);
+    aiwait_begin("Thinking...");
 
     char *out = NULL;
     char err[256];
     char *sys = aiinstr_system(EXPLAIN_SYSTEM, SMALL_AGENTS_FILE, SMALL_AGENTS_CAP);
     int rc = ai_ask(sys ? sys : EXPLAIN_SYSTEM, sel, &out, err, sizeof(err));
+    aiwait_end();
     free(sys);
     free(sel);
     if (rc != 0) {

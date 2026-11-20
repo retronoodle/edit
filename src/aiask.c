@@ -5,6 +5,7 @@
     #define _POSIX_C_SOURCE 200809L   /* mkstemp, fdopen, popen under -std=c99 */
 #endif
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,12 +19,14 @@
     FILE *_popen(const char *command, const char *mode);
     int _pclose(FILE *stream);
 #else
+    #include <poll.h>
     #include <sys/wait.h>
     #include <unistd.h>
 #endif
 
 #include "ai.h"
 #include "aiask.h"
+#include "aiwait.h"
 #include "options.h"
 
 #define AI_MAX_TOKENS 4096
@@ -104,7 +107,23 @@ static int run_curl(const char *cmd, char **buf, size_t *len, int *too_big) {
 #endif
         return -1;
     }
-    while ((n = fread(chunk, 1, sizeof chunk, p)) > 0) {
+    for (;;) {
+#ifndef _WIN32
+        /* Wait in 100 ms slices so the spinner keeps moving */
+        struct pollfd pf = { fileno(p), POLLIN, 0 };
+        int pr = poll(&pf, 1, 100);
+        if (pr == 0) { aiwait_tick(); continue; }
+        if (pr < 0 && errno == EINTR) continue;
+        aiwait_tick();
+        if (pr < 0) break;   /* poll failed for good: stop and reap curl */
+        /* read(), not fread(): returns what is there instead of waiting for a full chunk */
+        ssize_t rn = read(fileno(p), chunk, sizeof chunk);
+        if (rn < 0 && errno == EINTR) continue;
+        n = rn > 0 ? (size_t)rn : 0;
+#else
+        n = fread(chunk, 1, sizeof chunk, p);
+#endif
+        if (n == 0) break;
         if (*len + n + 1 > AI_MAX_REPLY) {
             *too_big = 1;   /* stop reading; curl gets SIGPIPE and exits */
             break;

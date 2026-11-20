@@ -10,6 +10,7 @@
 #include "ai.h"
 #include "aiinstr.h"
 #include "aiask.h"
+#include "aiwait.h"
 #include "aiedit.h"
 #include "clipboard.h"
 #include "clipcodec.h"
@@ -97,11 +98,13 @@ void ai_ask_selection(void) {
     gotoxy(0, screen_h - 2);
     printf("%-*s", screen_w - 1, "Thinking...");
     fflush(stdout);
+    aiwait_begin("Thinking...");
 
     char *out = NULL;
     char err[256];
     char *sys = aiinstr_system(AI_ASK_SYSTEM, SMALL_AGENTS_FILE, SMALL_AGENTS_CAP);
     int rc = ai_ask(sys ? sys : AI_ASK_SYSTEM, input, &out, err, sizeof(err));
+    aiwait_end();
     free(sys);
     free(input);
     if (rc != 0) {
