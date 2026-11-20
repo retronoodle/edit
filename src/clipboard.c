@@ -245,6 +245,9 @@ static int run_clip_cmd(const char *cmd, char **out, int *len) {
    Returns a malloc'd string and its length, or NULL if none gave text. */
 static char *sys_clip_read(int *len) {
     static const char *const cmds[] = {
+#ifdef __APPLE__
+        "pbpaste 2>/dev/null",
+#endif
         "wl-paste -n 2>/dev/null",
         "xclip -selection clipboard -o 2>/dev/null",
         "xsel --clipboard --output 2>/dev/null",
