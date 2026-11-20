@@ -14,6 +14,7 @@ int ai_ask(const char *system, const char *input, char **out, char *err, int err
    read-only tools when use_tools is set. On success returns 0 and sets *raw to the raw
    response body (malloc'd) for ai_chat_parse_calls / ai_parse_reply. On failure returns -1,
    *raw is NULL and err holds a short message. Blocks until curl finishes (60 s cap). */
+/* use_tools: 0 none, 1 all tools, 2 read-only tools (plan mode). */
 int ai_ask_chat(const char *system, const char *const *msgs, int n, int use_tools,
                 char **raw, char *err, int errsize);
 

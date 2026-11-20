@@ -20,6 +20,11 @@ void aichat_unfocus(void);
 /* Alt+J / Edit > AI Chat: opens and focuses; when open, focuses it or (if focused) closes it. */
 void aichat_toggle(void);
 
+/* Alt+P / Edit > Plan Mode: opens and focuses the chat and turns plan mode on or off. In plan
+   mode the AI only reads (read-only tools) and answers with a written plan; ^S approves it
+   (saved to ~/.velo_plans, then run here or in a new chat), ^E views it, ^R rejects it. */
+void aichat_toggle_plan(void);
+
 /* Draws the pane into the frame buffer (columns screen_w - aichat_width() ..). */
 void aichat_draw(void);
 

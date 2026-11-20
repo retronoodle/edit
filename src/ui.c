@@ -657,6 +657,7 @@ void show_help(void) {
     printf("  Alt+I           - Ask AI (instruction + selection, one undo step)\n");
     printf("  Alt+B           - File tree sidebar ([+]/[-] expand, double-click or Enter opens; n new file, N new folder, c copy, v paste, h hide noise; right-click menu)\n");
     printf("  Alt+J           - AI chat sidebar (can read project files; ^S applies a proposed edit)\n");
+    printf("  Alt+P           - Plan mode in the AI chat (read-only; ^S approves the plan)\n");
     printf("  Ctrl+Q          - Exit\n\n");
     printf("AI:\n");
     printf("  Set up once in Options > AI setup (provider, model, base URL, key).\n");

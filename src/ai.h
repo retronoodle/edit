@@ -114,6 +114,9 @@ char *ai_build_chat_body(const char *provider, const char *model, const char *sy
 /* The tool definitions for list_dir, read_file, grep and open_tabs, in the provider's format. */
 char *ai_chat_tools_json(const char *provider);
 
+/* Same, but only the read-only tools (list_dir, read_file, grep, open_tabs): plan mode. */
+char *ai_chat_tools_json_ro(const char *provider);
+
 /* Fills out[0..max) with the tool calls in a response body; returns the count. The caller
    frees them with ai_chat_free_calls. */
 int ai_chat_parse_calls(const char *provider, const char *body, AiToolCall *out, int max);

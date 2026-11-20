@@ -339,6 +339,16 @@ int main(void) {
         if (!nm || strcmp(nm, "read_file") != 0) { printf("FAIL tools oai\n"); failures++; }
         free(nm); free(tj);
 
+        /* Read-only tools: no write_file / edit_file, in both formats. */
+        tj = ai_chat_tools_json_ro("anthropic");
+        if (!tj || strstr(tj, "write_file") || strstr(tj, "edit_file") || !strstr(tj, "open_tabs") || !strstr(tj, "grep")) { printf("FAIL ro tools anth\n"); failures++; }
+        free(tj);
+        tj = ai_chat_tools_json_ro("openai");
+        if (!tj || strstr(tj, "write_file") || strstr(tj, "edit_file") || !strstr(tj, "read_file")) { printf("FAIL ro tools oai\n"); failures++; }
+        nm = ai_json_get_string(tj, "3.function.name");
+        if (!nm || strcmp(nm, "open_tabs") != 0) { printf("FAIL ro tools oai last\n"); failures++; }
+        free(nm); free(tj);
+
         /* Fenced file extraction */
         char *f = ai_chat_extract_file("Sure:\n```c\nint x;\n\nint y;\n```\nDone.");
         if (!f || strcmp(f, "int x;\n\nint y;") != 0) { printf("FAIL extract: %s\n", f ? f : "(null)"); failures++; }

@@ -92,6 +92,7 @@ static int run_action(int action) {
         case ACT_AI_COMPLETE: aicomplete_request(); break;
         case ACT_AI_CHAT:    sidebar_blur(); aichat_toggle(); break;
         case ACT_SIDEBAR:    sidebar_toggle(); break;
+        case ACT_AI_PLAN:    sidebar_blur(); aichat_toggle_plan(); break;
     }
     return 0;
 }
@@ -205,6 +206,7 @@ int main(int argc, char *argv[]) {
         switch (key) {
             case KEY_ALT_J: sidebar_blur(); aichat_toggle(); break;
             case KEY_ALT_B: sidebar_toggle(); break;
+            case KEY_ALT_P: run_action(ACT_AI_PLAN); break;
             case KEY_ALT_G: git_modal(); break;
             case KEY_ALT_I: run_action(ACT_AI_ASK); break;
             case KEY_ALT_SPACE: run_action(ACT_AI_COMPLETE); break;

@@ -27,6 +27,7 @@
 #include "files.h"
 #include "msgedit.h"
 #include "options.h"
+#include "plans.h"
 #include "syntax.h"
 #include "tabs.h"
 #include "utf8.h"
@@ -53,6 +54,28 @@ static const char CHAT_SYSTEM[] =
     "these open as unsaved tabs the user reviews and saves. Never use them on the active "
     "file; use the fenced block for that. Keep replies brief.";
 
+static const char PLAN_SYSTEM[] =
+    "You are an AI assistant inside the velo text editor, in PLAN MODE. Do not change "
+    "anything. Each user message includes the active file's current contents. First "
+    "explore the project with the read-only tools list_dir, read_file, grep and open_tabs "
+    "(read every file the task touches, but nothing else). Then reply with ONE plan in "
+    "Markdown: a '# Title' line, then ## Goal, ## Files to change (path and what changes in "
+    "each), ## Steps (numbered, concrete, in order), ## Risks and checks. Name real functions "
+    "and files you have read. Do not output a fenced block containing a whole file, and do "
+    "not write files. If the request is unclear, ask your questions instead of planning. "
+    "Revise the plan when the user gives feedback.";
+
+static const char PLAN_SYSTEM_NOTOOLS[] =
+    "You are an AI assistant inside the velo text editor, in PLAN MODE. Do not change "
+    "anything. Each user message includes the active file's current contents. You cannot "
+    "read other project files in this session, so plan only from that file and the user's "
+    "description, and say what you could not check. Reply with ONE plan in Markdown: a "
+    "'# Title' line, then ## Goal, ## Files to change (path and what changes in each), "
+    "## Steps (numbered, concrete, in order), ## Risks and checks. Do not invent files or "
+    "functions you have not seen. Do not output a fenced block containing a whole file, and "
+    "do not write files. If the request is unclear, ask your questions instead of planning. "
+    "Revise the plan when the user gives feedback.";
+
 /* ---- State ---- */
 
 typedef enum { E_USER, E_AI, E_TOOL, E_INFO, E_ERR } EntryKind;
@@ -77,6 +100,11 @@ static char *prop_text = NULL;
 static int prop_tab = -1;
 static char prop_file[256];
 static unsigned long prop_hash = 0;
+
+/* Plan mode: read-only research that ends in a written plan the user approves. */
+static int plan_mode = 0;
+static char *plan_text = NULL;   /* the pending plan (kept in memory until approved) */
+static int plan_saved = 0;       /* approved and written to disk, run choice still open */
 
 /* ---- Small helpers ---- */
 
@@ -157,6 +185,7 @@ static void new_chat(void) {
     for (int i = 0; i < n_hist; i++) free(hist[i]);
     n_hist = 0;
     drop_proposal();
+    plan_mode = 0;
     back = 0;
     add_entry(E_INFO, "", "Started a new chat.");
 }
@@ -175,6 +204,9 @@ static void drop_proposal(void) {
     free(prop_text);
     prop_text = NULL;
     prop_tab = -1;
+    free(plan_text);
+    plan_text = NULL;
+    plan_saved = 0;
 }
 
 /* FNV-1a over the whole active document, lines joined by '\n'. */
@@ -378,8 +410,9 @@ void aichat_draw(void) {
     layout(&L);
 
     /* Header */
-    char head[96];
-    snprintf(head, sizeof head, " AI Chat%s%s", options.ai_model[0] ? "  " : "", options.ai_model);
+    char head[200];
+    snprintf(head, sizeof head, " AI Chat%s%s%s", plan_mode ? " [PLAN]" : "",
+             options.ai_model[0] ? "  " : "", options.ai_model);
     fb_gotoxy(L.x0, TEXT_TOP);
     fb_puts(options_chrome_sgr(CH_TAB_BAR));
     fb_printf("%-*.*s", L.sw, L.sw, head);
@@ -612,6 +645,8 @@ static void open_pending(void) {
 
 /* Result text for one tool call. Always malloc'd. */
 static char *run_tool(const AiToolCall *c) {
+    if (plan_mode && (strcmp(c->name, "write_file") == 0 || strcmp(c->name, "edit_file") == 0))
+        return strdup("Error: plan mode is read-only. Put the change in the plan instead.");
     if (strcmp(c->name, "write_file") == 0) return queue_write(c, 0);
     if (strcmp(c->name, "edit_file") == 0) return queue_write(c, 1);
     if (strcmp(c->name, "open_tabs") == 0) {
@@ -675,14 +710,18 @@ static char *prose_without_fence(const char *reply, const int span[4]) {
     return out;
 }
 
-static void send_message(void) {
-    if (input.len == 0) return;
-    char *msg = strdup(input.text);
-    msgedit_clear(&input);
-    if (!msg) return;
-    drop_proposal();
+/* Runs one turn for `msg` (takes ownership). `label`, when given, is shown in the log instead
+   of the whole message (the history still keeps the full text). */
+static void send_text(char *msg, const char *label) {
+    if (plan_mode && plan_text) {   /* a revision: keep the old plan until a new one arrives */
+        free(prop_text);
+        prop_text = NULL;
+        prop_tab = -1;
+    } else {
+        drop_proposal();
+    }
     pending_clear();
-    add_entry(E_USER, "You: ", msg);
+    add_entry(E_USER, "You: ", label ? label : msg);
 
     int truncated;
     char *content = file_context(&truncated);
@@ -702,7 +741,12 @@ static void send_message(void) {
     char **work = malloc(cap_work * sizeof *work);
     char *reply = NULL;
     int ok = 0;
-    char *sys = aiinstr_system(CHAT_SYSTEM, AGENTS_FILE, AGENTS_CAP);
+    int use_tools = plan_mode ? 2 : 1;   /* 2: read-only tools */
+#ifdef _WIN32
+    use_tools = 0;
+#endif
+    const char *base_sys = plan_mode ? (use_tools ? PLAN_SYSTEM : PLAN_SYSTEM_NOTOOLS) : CHAT_SYSTEM;
+    char *sys = aiinstr_system(base_sys, AGENTS_FILE, AGENTS_CAP);
     if (!work || !full) {
         add_entry(E_ERR, "! ", "Out of memory.");
         goto done;
@@ -715,10 +759,6 @@ static void send_message(void) {
     }
     nwork++;
 
-    int use_tools = 1;
-#ifdef _WIN32
-    use_tools = 0;
-#endif
     for (int step = 0; step < MAX_STEPS && !ok; step++) {
         status(step == 0 ? "Thinking...  (Esc cancels between steps)" : "Thinking... (reading project files)");
         if (step > 0 && cancel_requested()) {
@@ -727,11 +767,16 @@ static void send_message(void) {
         }
         char *raw = NULL;
         char err[256];
-        if (ai_ask_chat(sys ? sys : CHAT_SYSTEM, (const char *const *)work, nwork, use_tools, &raw, err, sizeof err) != 0) {
+        if (ai_ask_chat(sys ? sys : base_sys, (const char *const *)work, nwork, use_tools, &raw, err, sizeof err) != 0) {
             if (use_tools && step == 0 && (strncmp(err, "HTTP 400", 8) == 0 || strncmp(err, "HTTP 404", 8) == 0 ||
                               strncmp(err, "HTTP 422", 8) == 0)) {
                 /* Some models/servers reject tool definitions: chat without file access. */
                 use_tools = 0;
+                if (plan_mode) {
+                    base_sys = PLAN_SYSTEM_NOTOOLS;
+                    free(sys);
+                    sys = aiinstr_system(base_sys, AGENTS_FILE, AGENTS_CAP);
+                }
                 add_entry(E_INFO, "", "Tools are not supported by this model; chatting without file access.");
                 step--;
                 continue;
@@ -797,7 +842,21 @@ done:
     if (ok && reply) {
         int span[4];
         char *shown = NULL, *kept = NULL;
-        if (ai_chat_find_fence(reply, span)) {
+        if (plan_mode) {
+            const char *r = reply;
+            while (*r == '\n' || *r == ' ') r++;
+            add_entry(E_AI, "", reply);
+            if (r[0] == '#' && r[1] == ' ') {   /* a plan, not a question */
+                char *np = strdup(reply);
+                if (np) {
+                    free(plan_text);
+                    plan_text = np;
+                    plan_saved = 0;
+                    add_entry(E_INFO, "", "Plan ready. ^S approves it, ^E views it, ^R rejects it; or type feedback to revise it.");
+                }
+            }
+            kept = strdup(reply);
+        } else if (ai_chat_find_fence(reply, span)) {
             char *prose = prose_without_fence(reply, span);
             char *file = ai_chat_extract_file(reply);
             int flen = file ? clip_clean_paste(file, (int)strlen(file)) : 0;
@@ -878,6 +937,63 @@ done:
         }
         pending_clear();
     }
+}
+
+static void send_message(void) {
+    if (input.len == 0) return;
+    char *msg = strdup(input.text);
+    msgedit_clear(&input);
+    if (!msg) return;
+    send_text(msg, NULL);
+}
+
+/* ---- Plan mode ---- */
+
+void aichat_toggle_plan(void) {
+    init_once();
+    if (screen_w < MIN_SCREEN_W) {
+        show_message("The AI chat needs a window at least 80 columns wide.");
+        return;
+    }
+    is_open = 1;
+    has_focus = 1;
+    plan_mode = !plan_mode;
+    add_entry(E_INFO, "", plan_mode
+        ? "Plan mode on: the AI only reads files and answers with a plan. Alt+P turns it off."
+        : "Plan mode off.");
+}
+
+/* ^S on a pending plan: save it, then run it here or in a fresh chat. */
+static void approve_plan(void) {
+    if (!plan_text) return;
+    if (!plan_saved) {
+        char path[600];
+        if (plans_save(plan_text, path, sizeof path)) {
+            char m[700];
+            snprintf(m, sizeof m, "Plan saved to %s", path);
+            add_entry(E_INFO, "", m);
+        } else {
+            add_entry(E_INFO, "", "Could not save the plan to ~/.velo_plans (continuing without a file).");
+        }
+        plan_saved = 1;
+    }
+    char ans[8];
+    if (!prompt_line("Run the plan: here (h) or in a new chat (n)? ", ans, sizeof ans) ||
+        (ans[0] != 'h' && ans[0] != 'H' && ans[0] != 'n' && ans[0] != 'N')) {
+        add_entry(E_INFO, "", "Plan approved but not started. ^S again to choose, ^R to drop it.");
+        return;
+    }
+    static const char head[] = "Implement this approved plan step by step. Follow it; if something in it turns out to be wrong, say so.\n\n";
+    char *msg = malloc(sizeof head + strlen(plan_text));
+    if (!msg) {
+        add_entry(E_ERR, "! ", "Out of memory.");
+        return;
+    }
+    strcpy(msg, head);
+    strcat(msg, plan_text);
+    plan_mode = 0;   /* the choice is made: the run is a normal (tools on) turn */
+    if (ans[0] == 'n' || ans[0] == 'N') new_chat();   /* also drops the plan */
+    send_text(msg, "Implement the approved plan.");
 }
 
 /* ---- Applying and reviewing a proposal ---- */
@@ -1052,6 +1168,7 @@ int aichat_key(int key) {
     init_once();
     switch (key) {
     case KEY_ALT_J: aichat_toggle(); return 1;
+    case KEY_ALT_P: aichat_toggle_plan(); return 1;
     case KEY_ESC:   has_focus = 0; return 1;
     case KEY_ENTER: send_message(); return 1;
     case KEY_BACKSPACE: msgedit_backspace(&input); return 1;
@@ -1074,14 +1191,18 @@ int aichat_key(int key) {
     }
     case KEY_CTRL_N: msgedit_insert_cp(&input, '\n'); return 1;
     case KEY_CTRL_S:
+        if (plan_text && plan_mode) { approve_plan(); return 1; }
         if (!prop_text) return 0;   /* nothing to apply: let Ctrl+S save the file */
         apply_proposal();
         return 1;
-    case KEY_CTRL_E: show_proposal_diff(); return 1;
+    case KEY_CTRL_E:
+        if (plan_text) view_text("Plan", plan_text);
+        else show_proposal_diff();
+        return 1;
     case KEY_CTRL_R:
-        if (!prop_text) return 0;
+        if (!prop_text && !plan_text) return 0;
+        add_entry(E_INFO, "", plan_text ? "Dropped the plan." : "Dropped the proposal.");
         drop_proposal();
-        add_entry(E_INFO, "", "Dropped the proposal.");
         return 1;
     case KEY_CTRL_V:
         show_message("Paste into the chat with your terminal's paste (Ctrl+Shift+V / Cmd+V).");

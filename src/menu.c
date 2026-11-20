@@ -33,6 +33,7 @@ static const MenuItem edit_items[] = {
     {"Complete",   "Alt/Ctrl+Space", 'M', ACT_AI_COMPLETE, 0, 0},
     {"AI Chat",    "Alt+J",  'H', ACT_AI_CHAT,    0, 0},
     {"File Tree",  "Alt+B",  'T', ACT_SIDEBAR,    0, 0},
+    {"Plan Mode",  "Alt+P",  'L', ACT_AI_PLAN,    0, 0},
 };
 
 static const MenuItem search_items[] = {

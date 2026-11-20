@@ -704,12 +704,14 @@ static const ToolSpec TOOL_SPECS[] = {
 };
 #define N_TOOL_SPECS ((int)(sizeof TOOL_SPECS / sizeof TOOL_SPECS[0]))
 
-char *ai_chat_tools_json(const char *provider) {
+#define N_RO_TOOLS 4   /* list_dir, read_file, grep, open_tabs: the first TOOL_SPECS entries */
+
+static char *tools_json_n(const char *provider, int count) {
     int anthropic = provider && strcmp(provider, "anthropic") == 0;
     Buf b;
     if (!buf_init(&b)) return NULL;
     int ok = buf_putc(&b, '[');
-    for (int i = 0; ok && i < N_TOOL_SPECS; i++) {
+    for (int i = 0; ok && i < count; i++) {
         const ToolSpec *t = &TOOL_SPECS[i];
         if (i) ok = buf_putc(&b, ',');
         if (anthropic) {
@@ -729,6 +731,14 @@ char *ai_chat_tools_json(const char *provider) {
     }
     ok = ok && buf_putc(&b, ']');
     return finish_body(&b, ok);
+}
+
+char *ai_chat_tools_json(const char *provider) {
+    return tools_json_n(provider, N_TOOL_SPECS);
+}
+
+char *ai_chat_tools_json_ro(const char *provider) {
+    return tools_json_n(provider, N_RO_TOOLS);
 }
 
 int ai_chat_parse_calls(const char *provider, const char *body, AiToolCall *out, int max) {

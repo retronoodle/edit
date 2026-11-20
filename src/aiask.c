@@ -276,7 +276,9 @@ int ai_ask(const char *system, const char *input, char **out, char *err, int err
 int ai_ask_chat(const char *system, const char *const *msgs, int n, int use_tools,
                 char **raw, char *err, int errsize) {
     *raw = NULL;
-    char *tools = use_tools ? ai_chat_tools_json(options.ai_provider) : NULL;
+    char *tools = !use_tools ? NULL
+                  : use_tools == 2 ? ai_chat_tools_json_ro(options.ai_provider)
+                                   : ai_chat_tools_json(options.ai_provider);
     char *body = ai_build_chat_body(options.ai_provider, options.ai_model, system, msgs, n,
                                     tools, AI_CHAT_MAX_TOKENS);
     free(tools);
