@@ -29,3 +29,7 @@ test_aiinstr
 test_aiinstr.exe
 test_linediff
 test_linediff.exe
+test_filetree
+test_filetree.exe
+test_fileops
+test_fileops.exe

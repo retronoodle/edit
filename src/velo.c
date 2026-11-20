@@ -14,6 +14,7 @@
 #include "aiedit.h"
 #include "aicomplete.h"
 #include "aichat.h"
+#include "sidebar.h"
 #include "aitools.h"
 #include "aiinstr.h"
 #include "aiexplain.h"
@@ -89,7 +90,8 @@ static int run_action(int action) {
         case ACT_AI_ASK:     ai_ask_selection(); break;
         case ACT_AI_EXPLAIN: ai_explain_selection(); break;
         case ACT_AI_COMPLETE: aicomplete_request(); break;
-        case ACT_AI_CHAT:    aichat_toggle(); break;
+        case ACT_AI_CHAT:    sidebar_blur(); aichat_toggle(); break;
+        case ACT_SIDEBAR:    sidebar_toggle(); break;
     }
     return 0;
 }
@@ -103,6 +105,7 @@ int main(int argc, char *argv[]) {
     options_load();   /* before opening files: a file's own line endings still win */
     aiinstr_set_root();
     aitools_set_root();     /* the AI chat's file tools stay inside this folder */
+    sidebar_set_root();     /* so does the file tree */
     quickopen_set_root();   /* Ctrl+P searches from here, whatever folder the browser visits */
 
     /* Each file named on the command line opens in its own tab. The first
@@ -156,7 +159,8 @@ int main(int argc, char *argv[]) {
         if (key == KEY_PASTE) {     /* text pasted by the terminal (Ctrl+Shift+V): insert it as typed text */
             int len = 0;
             char *text = term_take_paste(&len);
-            if (text && aichat_focused()) aichat_paste(text, len);
+            if (text && sidebar_focused()) { /* a tree has nothing to paste into */ }
+            else if (text && aichat_focused()) aichat_paste(text, len);
             else if (text && !editor.menu_active) clip_paste_text(text, len);
             free(text);
             needs_redraw = 1;
@@ -166,7 +170,11 @@ int main(int argc, char *argv[]) {
             MouseEvent ev;
             term_get_mouse(&ev);
             needs_redraw = 1;
-            if (aichat_mouse(&ev)) continue;   /* clicks and wheel inside the chat pane */
+            if (aichat_mouse(&ev)) {
+                if (ev.kind == MEV_PRESS || ev.kind == MEV_RIGHT_PRESS) sidebar_blur();
+                continue;
+            }   /* clicks and wheel inside the chat pane */
+            if (sidebar_mouse(&ev)) continue;  /* clicks, right-click menu and wheel inside the file tree */
             int action = mouse_handle(&ev);
             if (action != ACT_NONE && run_action(action)) {
                 running = 0;
@@ -190,11 +198,13 @@ int main(int argc, char *argv[]) {
         }
 
         // The AI chat pane takes typing while it has focus (other keys fall through)
+        if (sidebar_focused() && sidebar_key(key)) continue;
         if (aichat_focused() && aichat_key(key)) continue;
 
         // Normal editing mode
         switch (key) {
-            case KEY_ALT_J: aichat_toggle(); break;
+            case KEY_ALT_J: sidebar_blur(); aichat_toggle(); break;
+            case KEY_ALT_B: sidebar_toggle(); break;
             case KEY_ALT_G: git_modal(); break;
             case KEY_ALT_I: run_action(ACT_AI_ASK); break;
             case KEY_ALT_SPACE: run_action(ACT_AI_COMPLETE); break;

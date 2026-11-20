@@ -24,6 +24,7 @@
 #include "ui.h"
 #include "aicomplete.h"
 #include "aichat.h"
+#include "sidebar.h"
 
 /* Separator between status parts: a thin box-drawing bar (UTF-8, one cell). */
 #define STATUS_SEP " \xe2\x94\x82 "
@@ -233,8 +234,12 @@ int gutter_w(void) {
     return digits + 2;
 }
 
+int text_x0(void) {
+    return sidebar_width();
+}
+
 int text_w(void) {
-    return screen_w - gutter_w() - aichat_width();
+    return screen_w - sidebar_width() - gutter_w() - aichat_width();
 }
 
 /* Draws one screen row of a file line. scroll_x and column positions are in
@@ -439,7 +444,7 @@ void draw_editor_area() {
         }
 
         for (int r = 0; r < rows && screen_row <= last_row; r++, screen_row++) {
-            fb_gotoxy(0, screen_row);
+            fb_gotoxy(text_x0(), screen_row);
             if (file_line >= editor.line_count) {
                 draw_row(file_line, 0, 0, 0, 0, editor.scroll_x, NULL, has_sel, sy1, sx1, sy2, sx2);
             } else if (options.wrap) {
@@ -470,6 +475,7 @@ void refresh_screen() {
     draw_menu_bar();
     draw_tab_bar();
     draw_editor_area();
+    sidebar_draw();
     aichat_draw();
     draw_dropdown();
     draw_status_line();
@@ -485,14 +491,15 @@ void refresh_screen() {
         utf8_wrap_cursor(cur->text, cur->len, text_w(), editor.cursor_x, &crow, &ccol);
         screen_y = TEXT_TOP + crow;
         for (int f = editor.scroll_y; f < editor.cursor_y; f++) screen_y += line_rows(f);
-        screen_x = ccol + gutter_w();
+        screen_x = ccol + gutter_w() + text_x0();
     } else {
-        screen_x = utf8_col(cur->text, cur->len, editor.cursor_x) - editor.scroll_x + gutter_w();
+        screen_x = utf8_col(cur->text, cur->len, editor.cursor_x) - editor.scroll_x + gutter_w() + text_x0();
         screen_y = editor.cursor_y - editor.scroll_y + TEXT_TOP;
     }
-    aicomplete_draw(screen_x, screen_y, gutter_w(), text_w());
+    aicomplete_draw(screen_x, screen_y, text_x0() + gutter_w(), text_w());
     /* With the AI chat focused, the cursor sits in its input box */
     int chat_cursor = aichat_cursor(&screen_x, &screen_y);
+    if (!chat_cursor) chat_cursor = sidebar_cursor(&screen_x, &screen_y);   /* same: on the selected tree row */
     fb_gotoxy(screen_x, screen_y);
     /* After a wheel scroll the cursor can be off screen: keep the hardware cursor hidden */
     int visible = chat_cursor || (editor.cursor_y >= editor.scroll_y &&
@@ -648,6 +655,7 @@ void show_help(void) {
     printf("  Alt+G           - Git panel (status, diff, commit, push, branch, merge; Enter = file diff, D = AI commit message)\n");
     printf("  Alt+Space       - AI autocomplete (also Ctrl+Space) (Tab accepts, any other key dismisses)\n");
     printf("  Alt+I           - Ask AI (instruction + selection, one undo step)\n");
+    printf("  Alt+B           - File tree sidebar ([+]/[-] expand, double-click or Enter opens; n new file, N new folder, c copy, v paste, h hide noise; right-click menu)\n");
     printf("  Alt+J           - AI chat sidebar (can read project files; ^S applies a proposed edit)\n");
     printf("  Ctrl+Q          - Exit\n\n");
     printf("AI:\n");

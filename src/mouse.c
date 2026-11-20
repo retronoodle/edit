@@ -34,7 +34,7 @@ static int text_bottom(void) {
 /* Puts the cursor at the character under cell (x, y). Rows outside the text area
    map to the lines just above or below the view, so dragging past an edge scrolls. */
 static void cursor_to_cell(int x, int y) {
-    int tx = x - gutter_w();   /* clicks in the gutter land on column 0 */
+    int tx = x - text_x0() - gutter_w();   /* clicks in the gutter land on column 0 */
     if (tx < 0) tx = 0;
 
     if (options.wrap) {

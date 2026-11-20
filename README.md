@@ -1,0 +1,86 @@
+# velo
+
+A small, full-screen text editor that lives in your terminal. Written in **pure C**, with no third-party libraries. It runs on POSIX terminals and Windows.
+
+```
+./velo.exe [filename]
+```
+
+## What it does
+
+velo is a regular editor you can use from a terminal, with the things you'd expect:
+
+- **Tabs** for multiple open files (up to 16), with unsaved-change markers
+- **Menus** for File, Edit, Search and Options, plus full mouse support (click, drag-select, double-click word select, wheel scrolling, right-click menu)
+- **Selections**, including rectangular block selection, cut/copy/paste and an internal clipboard that also goes to the system clipboard
+- **Undo and redo** for every edit
+- **Find, Find Next, Replace and Go to Line**
+- **Quick Open** (Ctrl+P): fuzzy file finder over the project folder
+- **Syntax highlighting** for keywords, comments and strings
+- **Word wrap**, line numbers, bracket auto-close and matching-bracket highlight
+- **Recent files**, a folder browser for Open and Save As
+- **Crash recovery**: modified tabs are backed up every 30 seconds and offered back on next launch
+- **External change detection**: velo notices when the open file changes on disk and offers to reload it
+- **Git panel** (Alt+G): see status, stage and unstage files, view diffs, commit, push, switch and merge branches, and `git init` or create a GitHub repo from inside the editor
+- **Options** that persist in `~/.velo_config`: tab width, line endings, colour scheme, and more
+
+### AI features (optional)
+
+velo has a set of AI helpers. Nothing is sent anywhere until you trigger one, and you choose the provider and key in **Options > AI setup**.
+
+- **Ask AI** (Alt+I): describe a change, and the selection (or the text around the cursor) is replaced with the reply as a single undo step
+- **Autocomplete** (Alt+Space): dim ghost text you accept with Tab
+- **Explain**: read a plain-English explanation of the selection
+- **File tree** (Alt+B): a left sidebar with expandable folders, double-click to open, and new file, new folder, copy and paste (keys or right-click menu)
+- **AI chat** (Alt+J): a side pane that can read your project (sandboxed to the startup folder), propose changes as diffs you apply with Ctrl+S, and create or edit files as unsaved tabs
+- **Commit message drafts** in the git panel
+
+## Why it's cool
+
+- **Pure C, no dependencies.** The build uses only the C standard library and the platform's own APIs (termios on POSIX, the console API on Windows). No frameworks, no package manager, no build system beyond a plain Makefile.
+- **Small and readable.** The code is split into focused modules (`buffer.c`, `undo.c`, `syntax.c`, `gitmodal.c`, `aichat.c`, ...), each with a header describing what it does.
+- **Pure logic is separated from I/O.** Helpers like the fuzzy matcher, the diff, the JSON escaping, the Markdown renderer and the word-wrap maths are plain functions with unit tests and no side effects.
+- **Tested.** Each pure module has a test program in `tests/`, run with `make test`.
+- **Robust terminal handling.** Input is normalised through one `read_key()` function, so backspace, function keys and mouse events behave the same across terminals.
+
+## Building
+
+You need a C compiler (`gcc`, or MinGW on Windows) and `make`.
+
+```sh
+make            # builds velo (velo.exe on Windows)
+make test       # builds and runs the unit tests
+make clean      # removes build outputs
+```
+
+Build flags are `-Wall -Wextra -std=c99`.
+
+### Optional external tools
+
+velo itself needs nothing else. A few features call out to tools already on your system if they're present:
+
+| Feature | Tool used |
+| --- | --- |
+| Git panel | `git` (and `gh` for creating a GitHub repo) |
+| AI features | `curl` |
+| System clipboard paste on Linux | `wl-paste`, `xclip` or `xsel` |
+
+## Running
+
+```sh
+./velo            # new empty buffer
+./velo notes.txt  # open a file
+```
+
+Key shortcuts are shown on the bottom bar. Ctrl+Q quits, Ctrl+S saves, Ctrl+W closes a tab, F6/F7 switch tabs, and Alt+G opens the git panel.
+
+## Project layout
+
+```
+src/      editor sources and headers
+tests/    unit tests for the pure modules
+docs/     design notes
+Makefile  build, test and clean targets
+```
+
+Developer notes and the architecture overview live in [`CLAUDE.md`](CLAUDE.md).

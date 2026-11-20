@@ -14,6 +14,9 @@ int aichat_width(void);
 /* 1 while the sidebar is open and has the keyboard. */
 int aichat_focused(void);
 
+/* Takes the keyboard away from the chat (the file tree took it). */
+void aichat_unfocus(void);
+
 /* Alt+J / Edit > AI Chat: opens and focuses; when open, focuses it or (if focused) closes it. */
 void aichat_toggle(void);
 

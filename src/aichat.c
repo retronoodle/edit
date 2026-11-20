@@ -1025,6 +1025,10 @@ static void show_proposal_diff(void) {
 
 /* ---- Keys, mouse ---- */
 
+void aichat_unfocus(void) {
+    has_focus = 0;
+}
+
 void aichat_toggle(void) {
     init_once();
     if (!is_open) {
