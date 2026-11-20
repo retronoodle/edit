@@ -18,7 +18,7 @@
 
 #define CONFIG_NAME ".velo_config"
 
-Options options = {4, 0, 0, 0, 1, 0, "", "", "", ""};
+Options options = {4, 0, 0, 0, 1, 0, 1, "", "", "", ""};
 
 static const char *scheme_names[] = {"Default", "Blue", "Light"};
 
@@ -49,6 +49,9 @@ void options_cycle(int action) {
             break;
         case ACT_WRAP:
             options.wrap = !options.wrap;
+            break;
+        case ACT_BRACE:
+            options.brace = !options.brace;
             break;
     }
     options_save();
@@ -101,6 +104,9 @@ static int apply_option(const char *key, const char *val) {
     } else if (strcmp(key, "wrap") == 0) {
         if (n != 0 && n != 1) return 0;
         options.wrap = n;
+    } else if (strcmp(key, "brace") == 0) {
+        if (n != 0 && n != 1) return 0;
+        options.brace = n;
     } else {
         return 0;
     }
@@ -174,6 +180,7 @@ void options_save(void) {
     fprintf(f, "line_numbers=%d\n", options.line_numbers);
     fprintf(f, "syntax=%d\n", options.syntax);
     fprintf(f, "wrap=%d\n", options.wrap);
+    fprintf(f, "brace=%d\n", options.brace);
     if (options.ai_provider[0]) fprintf(f, "ai_provider=%s\n", options.ai_provider);
     if (options.ai_model[0]) fprintf(f, "ai_model=%s\n", options.ai_model);
     if (options.ai_base_url[0]) fprintf(f, "ai_base_url=%s\n", options.ai_base_url);
@@ -200,6 +207,9 @@ void options_label(int action, char *buf, int size) {
             break;
         case ACT_WRAP:
             snprintf(buf, size, "Word wrap: %s", options.wrap ? "On" : "Off");
+            break;
+        case ACT_BRACE:
+            snprintf(buf, size, "Brace match: %s", options.brace ? "On" : "Off");
             break;
         default:
             if (size > 0) buf[0] = '\0';

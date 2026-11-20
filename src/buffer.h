@@ -18,6 +18,8 @@ void insert_utf8(const char *s, int n);   /* one whole character, n bytes */
 void delete_char(void);
 void backspace(void);
 void insert_newline(void);
+int brace_type_char(int ch);   /* brace help for a typed byte; 1 if handled */
+int brace_backspace(void);     /* removes an empty brace pair; 1 if handled */
 
 /* Multi-line edits used by clipboard and selection; each is recorded for undo. */
 void insert_text(const char *s, int n);          /* inserts at the cursor; '\n' splits lines */

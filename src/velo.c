@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "editor.h"
+#include "brace.h"
 #include "buffer.h"
 #include "term.h"
 #include "ui.h"
@@ -32,6 +33,8 @@ static int needs_redraw = 1;
 /* Types one character (n UTF-8 bytes) at the cursor. Over a selection, the
    selection is replaced in one undo step. */
 static void type_chars(const char *s, int n) {
+    /* Brace help: only for a plain typed bracket or quote with no selection */
+    if (n == 1 && brace_type_char((unsigned char)s[0])) return;
     if (sel_begin_replace()) {
         insert_text(s, n);
         undo_end_group();
@@ -72,6 +75,7 @@ static int run_action(int action) {
         case ACT_LINE_NUMBERS:
         case ACT_SYNTAX:
         case ACT_WRAP:
+        case ACT_BRACE:
             options_cycle(action);
             break;
         case ACT_LANGUAGE:   /* per file, not saved: Auto, Plain, then each language */
@@ -225,7 +229,7 @@ int main(int argc, char *argv[]) {
             }
             case KEY_BACKSPACE:
                 if (sel_begin_replace()) undo_end_group();
-                else backspace();
+                else if (!brace_backspace()) backspace();
                 break;
             case KEY_TAB: {
                 /* Width comes from Options; the longest option is 8 spaces */

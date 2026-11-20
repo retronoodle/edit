@@ -2,6 +2,8 @@ velo.exe
 velo
 *.o
 test_utf8
+test_brace
+test_brace.exe
 test_utf8.exe
 test_syntax
 test_syntax.exe

@@ -9,6 +9,7 @@ typedef struct {
     int line_numbers; /* 1 = show line numbers in a left gutter, 0 = off */
     int syntax;       /* 1 = color keywords, comments and strings, 0 = plain text */
     int wrap;         /* 1 = soft-wrap long lines at the window edge, 0 = scroll sideways */
+    int brace;        /* 1 = auto-close brackets and quotes, highlight the matching bracket */
     char ai_provider[16];  /* "anthropic" or "openai", empty = not set */
     char ai_model[128];    /* model name sent with AI requests */
     char ai_base_url[256]; /* base URL for the openai provider */
@@ -21,7 +22,7 @@ extern Options options;
    OPENAI_API_KEY) if set, else the stored ai_key, else "". Never log it. */
 const char *options_ai_key(void);
 
-/* Advances the option for an ACT_TAB_WIDTH / ACT_LINE_ENDS / ACT_COLOR_SCHEME / ACT_LINE_NUMBERS / ACT_SYNTAX / ACT_WRAP action. */
+/* Advances the option for an ACT_TAB_WIDTH / ACT_LINE_ENDS / ACT_COLOR_SCHEME / ACT_LINE_NUMBERS / ACT_SYNTAX / ACT_WRAP / ACT_BRACE action. */
 void options_cycle(int action);
 
 /* Reads ~/.velo_config. Missing or unreadable keeps the defaults. */

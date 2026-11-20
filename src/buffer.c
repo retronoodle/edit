@@ -9,6 +9,8 @@
 #include "ui.h"
 #include "utf8.h"
 #include "options.h"
+#include "brace.h"
+#include "clipboard.h"
 
 Editor editor;
 
@@ -275,6 +277,49 @@ void insert_utf8(const char *s, int n) {
     editor.modified = 1;
 }
 
+/* Brace help for one typed byte with no selection: steps over a closer already
+   there, or auto-closes the pair. Returns 1 if it handled the key. */
+int brace_type_char(int ch) {
+    if (!options.brace) return 0;
+    int a, b, c, d;
+    if (sel_range(&a, &b, &c, &d)) return 0;   /* a real selection: replace it instead */
+    sel_clear();                                /* drop an empty, still-active selection */
+
+    Line *ln = &editor.lines[editor.cursor_y];
+    int x = editor.cursor_x;
+    if (brace_is_skip(ln->text, ln->len, x, ch)) {
+        move_cursor(1, 0);   /* step over the closer already there */
+        return 1;
+    }
+    if (brace_should_autoclose(ln->text, ln->len, x, ch)) {
+        char opener = (char)ch, closer = (char)brace_closer(ch);
+        /* Insert both halves even in overwrite mode, so nothing after the cursor is lost */
+        int saved_mode = editor.insert_mode;
+        editor.insert_mode = 1;
+        undo_begin_group();
+        insert_utf8(&opener, 1);
+        insert_utf8(&closer, 1);
+        editor.cursor_x = x + 1;   /* between the pair */
+        undo_end_group();
+        editor.insert_mode = saved_mode;
+        return 1;
+    }
+    return 0;
+}
+
+/* Backspace on an empty brace pair removes both halves as one undo step.
+   Returns 1 if it handled the key. */
+int brace_backspace(void) {
+    if (!options.brace) return 0;
+    Line *ln = &editor.lines[editor.cursor_y];
+    if (!brace_pair_between(ln->text, ln->len, editor.cursor_x)) return 0;
+    undo_begin_group();
+    backspace();
+    delete_char();
+    undo_end_group();
+    return 1;
+}
+
 void delete_char() {
     int y = editor.cursor_y, x = editor.cursor_x;
     Line *ln = &editor.lines[y];
@@ -320,7 +365,8 @@ void backspace() {
     }
 }
 
-void insert_newline() {
+/* Splits the line at the cursor and copies the indent down. */
+static void newline_split(void) {
     int y = editor.cursor_y, x = editor.cursor_x;
 
     /* Leading spaces/tabs of this line, never past the cursor */
@@ -340,6 +386,26 @@ void insert_newline() {
         editor.cursor_x = indent;
     }
     editor.modified = 1;
+}
+
+void insert_newline() {
+    int y = editor.cursor_y, x = editor.cursor_x;
+    const Line *ln = &editor.lines[y];
+
+    if (options.brace && brace_curly_between(ln->text, ln->len, x)) {
+        /* Between an empty pair, e.g. {|}: put the closer on its own line
+           and the cursor on an indented line in between. */
+        int indent = 0;
+        while (indent < x && (ln->text[indent] == ' ' || ln->text[indent] == '\t')) indent++;
+
+        newline_split();   /* "{" / "}" */
+        newline_split();   /* "{" / "" / "}" with the indent carried down */
+        editor.cursor_y = y + 1;
+        editor.cursor_x = indent;
+        for (int i = 0; i < options.tab_width; i++) insert_utf8(" ", 1);
+        return;
+    }
+    newline_split();
 }
 
 /* ---- Multi-line range edits ---- */

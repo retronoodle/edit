@@ -24,6 +24,7 @@ static void reset_options(void) {
     options.line_numbers = 0;
     options.syntax = 1;
     options.wrap = 0;
+    options.brace = 1;
     options.ai_provider[0] = '\0';
     options.ai_model[0] = '\0';
     options.ai_base_url[0] = '\0';
@@ -46,6 +47,11 @@ static void test_valid(void) {
 
     CHECK(options_parse_line("  syntax = 0 \r\n") == 1, "spaces around key and value");
     CHECK(options.syntax == 0, "syntax value is 0");
+
+    CHECK(options_parse_line("brace=0") == 1, "brace=0 applied");
+    CHECK(options.brace == 0, "brace value is 0");
+    CHECK(options_parse_line("brace=2") == 0, "brace=2 rejected");
+    CHECK(options.brace == 0, "brace kept after bad value");
 }
 
 static void test_invalid_values(void) {

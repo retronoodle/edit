@@ -18,6 +18,7 @@
 #include "options.h"
 #include "syntax.h"
 #include "buffer.h"
+#include "brace.h"
 #include "tabs.h"
 #include "gitinfo.h"
 #include "ui.h"
@@ -246,6 +247,13 @@ static int kind_cap = 0;
 /* 1 while drawing a block selection: draw_row then reads sx1/sx2 as display columns. Set per redraw. */
 static int draw_block = 0;
 
+/* Matching-bracket pair to highlight this redraw (byte positions); -1 = none. Set in draw_editor_area. */
+static int brace_y1 = -1, brace_x1 = -1, brace_y2 = -1, brace_x2 = -1;
+
+static int brace_marked(int y, int x) {
+    return (y == brace_y1 && x == brace_x1) || (y == brace_y2 && x == brace_x2);
+}
+
 static unsigned char *kind_buffer(int n) {
     if (n > kind_cap) {
         unsigned char *p = realloc(kind_buf, (size_t)n * 2);
@@ -304,10 +312,14 @@ static void draw_row(int file_line, int show_num, int from, int to, int col0, in
                     }
                 }
                 int kind = kinds ? kinds[pos] : TK_PLAIN;
-                if (selected != hl || (!selected && kind != cur_kind)) {
+                /* 0 plain, 2 selected (reverse), 3 matching bracket (bold underline) */
+                int mark = !selected && brace_marked(file_line, pos);
+                int want = selected ? 2 : mark ? 3 : 0;
+                if (want != hl || (want == 0 && kind != cur_kind)) {
                     if (selected) fb_puts("\x1b[7m");
+                    else if (mark) { fb_puts(options_base_sgr()); fb_puts("\x1b[1;4m"); }
                     else fb_puts(kind == TK_PLAIN ? options_base_sgr() : syntax_sgr(kind, options.scheme));
-                    hl = selected;
+                    hl = want;
                     cur_kind = kind;
                 }
                 while (out < start - scroll) { fb_write(" ", 1); out++; }
@@ -376,6 +388,15 @@ void draw_editor_area() {
     int has_sel, sy1 = 0, sx1 = 0, sy2 = 0, sx2 = 0;
     has_sel = sel_range(&sy1, &sx1, &sy2, &sx2);
     draw_block = has_sel && editor.sel_block;
+    brace_y1 = brace_x1 = brace_y2 = brace_x2 = -1;
+    if (options.brace) {
+        int ay, ax, by, bx;
+        if (brace_match_for_cursor(editor.lines, editor.line_count,
+                                   editor.cursor_y, editor.cursor_x, &ay, &ax, &by, &bx)) {
+            brace_y1 = ay; brace_x1 = ax;
+            brace_y2 = by; brace_x2 = bx;
+        }
+    }
     if (draw_block) sel_block_cols(&sx1, &sx2);   /* block: columns instead of byte offsets */
 
     /* Token colors need the parser state at the top visible line, so scan the lines above it first.
