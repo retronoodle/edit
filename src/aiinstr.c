@@ -1,4 +1,7 @@
 /* Project instruction files (AGENTS.md, SMALL_AGENTS.md) added to AI system prompts. */
+#ifndef _WIN32
+    #define _POSIX_C_SOURCE 200809L   /* strdup under -std=c99 */
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

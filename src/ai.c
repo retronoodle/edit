@@ -1,4 +1,7 @@
 /* Pure JSON helpers for the AI module. See ai.h. */
+#ifndef _WIN32
+    #define _POSIX_C_SOURCE 200809L   /* strdup under -std=c99 */
+#endif
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>

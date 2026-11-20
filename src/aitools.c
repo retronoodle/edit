@@ -1,6 +1,6 @@
 /* Read-only project tools for the AI chat. See aitools.h. */
 #ifndef _WIN32
-    #define _POSIX_C_SOURCE 200809L   /* realpath, lstat under -std=c99 */
+    #define _XOPEN_SOURCE 700   /* realpath under -std=c99 (glibc gates it behind XOPEN) */
 #endif
 
 #include <stdio.h>
