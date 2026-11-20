@@ -20,6 +20,10 @@ char *ai_json_get_string(const char *json, const char *path);
    it is a plain string, or top-level "message". Returns malloc'd text or NULL. */
 char *ai_json_error(const char *json);
 
+/* Returns the raw JSON text of the value at a dot path (object, array, string with its
+   quotes, number...), malloc'd, or NULL when the path is missing. */
+char *ai_json_get_raw(const char *json, const char *path);
+
 /* Request building (pure). Each returns a malloc'd string (free it), or NULL on
    allocation failure. An empty or NULL system prompt is left out of the body. A NULL
    input is sent as "". */
@@ -78,5 +82,56 @@ char *ai_build_complete_input(const char *before, const char *after);
    lines and drops trailing blank space. Returns malloc'd text (free it), or NULL on
    allocation failure. */
 char *ai_trim_completion(const char *reply, int max_lines);
+
+/* Chat with read-only tools (pure). History is a list of provider-format message
+   JSON objects (strings); a string may hold several messages joined by commas. */
+
+typedef struct {
+    char *id;     /* provider's call id */
+    char *name;   /* tool name */
+    char *args;   /* arguments as a JSON object (malloc'd) */
+} AiToolCall;
+
+/* {"role":role,"content":text} (same for both providers). ai_chat_user_msg is role "user". */
+char *ai_chat_text_msg(const char *role, const char *text);
+char *ai_chat_user_msg(const char *text);
+
+/* The assistant message to keep in history, taken from a response body (content blocks
+   for Anthropic, choices.0.message for OpenAI), so tool calls are echoed back. NULL if absent. */
+char *ai_chat_assistant_msg(const char *provider, const char *body);
+
+/* Message(s) answering n tool calls: one user message of tool_result blocks (Anthropic) or
+   n comma-joined "tool" messages (OpenAI). */
+char *ai_chat_tool_results_msg(const char *provider, const char *const *ids,
+                               const char *const *texts, int n);
+
+/* Request body for a chat: system prompt, history msgs[0..n), optional tools_json (from
+   ai_chat_tools_json; NULL or "" for none). */
+char *ai_build_chat_body(const char *provider, const char *model, const char *system,
+                         const char *const *msgs, int n, const char *tools_json,
+                         int max_tokens);
+
+/* The tool definitions for list_dir, read_file, grep and open_tabs, in the provider's format. */
+char *ai_chat_tools_json(const char *provider);
+
+/* Fills out[0..max) with the tool calls in a response body; returns the count. The caller
+   frees them with ai_chat_free_calls. */
+int ai_chat_parse_calls(const char *provider, const char *body, AiToolCall *out, int max);
+void ai_chat_free_calls(AiToolCall *c, int n);
+
+/* Finds the first complete fenced block in a reply. span = { start of the opening fence line,
+   first byte of the body, end of the body (no final newline), first byte after the closing
+   fence line }, all byte offsets. Returns 0 when there is none. */
+int ai_chat_find_fence(const char *reply, int span[4]);
+
+/* First fenced block of a reply (the proposed whole-file replacement), without the fence
+   lines. NULL when the reply has no complete fenced block. A fence of N backticks closes
+   only on a line of at least N backticks. */
+char *ai_chat_extract_file(const char *reply);
+
+/* The user message for one chat turn: the text, the active file name, the selection and
+   the (already capped) file contents. truncated notes that the contents are partial. */
+char *ai_build_chat_input(const char *message, const char *filename, const char *selection,
+                          const char *content, int truncated);
 
 #endif

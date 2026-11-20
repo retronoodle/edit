@@ -277,35 +277,57 @@ static int parse_index(const char *p, int len) {
     return v;
 }
 
+/* Moves c to the value at a dot path. Returns 1 with c on the value, 0 if absent. */
+static int seek_path(Cur *c, const char *path) {
+    const char *p = path;
+    for (;;) {
+        const char *dot = strchr(p, '.');
+        int seglen = dot ? (int)(dot - p) : (int)strlen(p);
+        if (seglen == 0) return 0;
+        skip_ws(c);
+        if (c->i >= c->n) return 0;
+        int ok;
+        if (c->s[c->i] == '[') {
+            int idx = parse_index(p, seglen);
+            ok = idx >= 0 && seek_index(c, idx);
+        } else {
+            ok = seek_key(c, p, seglen);
+        }
+        if (!ok) return 0;
+        if (!dot) return 1;
+        p = dot + 1;
+    }
+}
+
 char *ai_json_get_string(const char *json, const char *path) {
     if (!json || !path) return NULL;
     Cur c;
     c.s = json;
     c.n = (int)strlen(json);
     c.i = 0;
-    const char *p = path;
-    for (;;) {
-        const char *dot = strchr(p, '.');
-        int seglen = dot ? (int)(dot - p) : (int)strlen(p);
-        if (seglen == 0) return NULL;
-        skip_ws(&c);
-        if (c.i >= c.n) return NULL;
-        int ok;
-        if (c.s[c.i] == '[') {
-            int idx = parse_index(p, seglen);
-            ok = idx >= 0 && seek_index(&c, idx);
-        } else {
-            ok = seek_key(&c, p, seglen);
-        }
-        if (!ok) return NULL;
-        if (!dot) break;
-        p = dot + 1;
-    }
+    if (!seek_path(&c, path)) return NULL;
     skip_ws(&c);
     if (c.i >= c.n || c.s[c.i] != '"') return NULL;
     int ks = c.i + 1;
     if (!skip_string(&c)) return NULL;
     return ai_json_unescape(json + ks, c.i - 1 - ks);
+}
+
+char *ai_json_get_raw(const char *json, const char *path) {
+    if (!json || !path) return NULL;
+    Cur c;
+    c.s = json;
+    c.n = (int)strlen(json);
+    c.i = 0;
+    if (!seek_path(&c, path)) return NULL;
+    skip_ws(&c);
+    int start = c.i;
+    if (!skip_value(&c, 1)) return NULL;
+    char *out = malloc(c.i - start + 1);
+    if (!out) return NULL;
+    memcpy(out, json + start, c.i - start);
+    out[c.i - start] = '\0';
+    return out;
 }
 
 char *ai_json_error(const char *json) {
@@ -564,4 +586,259 @@ char *ai_trim_completion(const char *reply, int max_lines) {
     while (n > 0 && (s[n - 1] == '\n' || s[n - 1] == '\r' || s[n - 1] == ' ' || s[n - 1] == '\t')) n--;
     s[n] = '\0';
     return s;
+}
+
+/* Chat with tools (pure) */
+
+char *ai_chat_text_msg(const char *role, const char *text) {
+    Buf b;
+    if (!buf_init(&b)) return NULL;
+    int ok = put_lit(&b, "{") && put_field(&b, "role", role) && buf_putc(&b, ',') &&
+             put_field(&b, "content", text ? text : "") && buf_putc(&b, '}');
+    return finish_body(&b, ok);
+}
+
+char *ai_chat_user_msg(const char *text) {
+    return ai_chat_text_msg("user", text);
+}
+
+char *ai_chat_assistant_msg(const char *provider, const char *body) {
+    int anthropic = provider && strcmp(provider, "anthropic") == 0;
+    char *raw = ai_json_get_raw(body, anthropic ? "content" : "choices.0.message");
+    if (!raw) return NULL;
+    if (!anthropic) return raw;   /* already {"role":"assistant",...} */
+    Buf b;
+    if (!buf_init(&b)) {
+        free(raw);
+        return NULL;
+    }
+    int ok = put_lit(&b, "{\"role\":\"assistant\",\"content\":") && put_lit(&b, raw) &&
+             buf_putc(&b, '}');
+    free(raw);
+    return finish_body(&b, ok);
+}
+
+char *ai_chat_tool_results_msg(const char *provider, const char *const *ids,
+                               const char *const *texts, int n) {
+    int anthropic = provider && strcmp(provider, "anthropic") == 0;
+    Buf b;
+    if (!buf_init(&b)) return NULL;
+    int ok = 1;
+    if (anthropic) ok = put_lit(&b, "{\"role\":\"user\",\"content\":[");
+    for (int i = 0; ok && i < n; i++) {
+        if (i) ok = buf_putc(&b, ',');
+        if (anthropic) {
+            ok = ok && put_lit(&b, "{\"type\":\"tool_result\",") &&
+                 put_field(&b, "tool_use_id", ids[i]) && buf_putc(&b, ',') &&
+                 put_field(&b, "content", texts[i]) && buf_putc(&b, '}');
+        } else {
+            ok = ok && put_lit(&b, "{\"role\":\"tool\",") &&
+                 put_field(&b, "tool_call_id", ids[i]) && buf_putc(&b, ',') &&
+                 put_field(&b, "content", texts[i]) && buf_putc(&b, '}');
+        }
+    }
+    if (anthropic) ok = ok && put_lit(&b, "]}");
+    return finish_body(&b, ok);
+}
+
+char *ai_build_chat_body(const char *provider, const char *model, const char *system,
+                         const char *const *msgs, int n, const char *tools_json,
+                         int max_tokens) {
+    int anthropic = provider && strcmp(provider, "anthropic") == 0;
+    Buf b;
+    if (!buf_init(&b)) return NULL;
+    char num[16];
+    snprintf(num, sizeof num, "%d", max_tokens);
+    int ok = buf_putc(&b, '{') && put_field(&b, "model", model ? model : "") &&
+             put_lit(&b, ",\"max_tokens\":") && put_lit(&b, num);
+    if (ok && anthropic && system && *system)
+        ok = buf_putc(&b, ',') && put_field(&b, "system", system);
+    if (ok && tools_json && *tools_json)
+        ok = put_lit(&b, ",\"tools\":") && put_lit(&b, tools_json);
+    ok = ok && put_lit(&b, ",\"messages\":[");
+    if (ok && !anthropic && system && *system)
+        ok = put_lit(&b, "{") && put_field(&b, "role", "system") && buf_putc(&b, ',') &&
+             put_field(&b, "content", system) && put_lit(&b, "}") && (n > 0 ? buf_putc(&b, ',') : 1);
+    for (int i = 0; ok && i < n; i++) {
+        if (i) ok = buf_putc(&b, ',');
+        ok = ok && put_lit(&b, msgs[i]);
+    }
+    ok = ok && put_lit(&b, "]}");
+    return finish_body(&b, ok);
+}
+
+typedef struct {
+    const char *name;
+    const char *desc;
+    const char *props;      /* JSON object body of "properties" */
+    const char *required;   /* JSON array */
+} ToolSpec;
+
+static const ToolSpec TOOL_SPECS[] = {
+    { "list_dir", "List the entries of a directory in the project (folders end with /).",
+      "{\"path\":{\"type\":\"string\",\"description\":\"Directory relative to the project root; empty for the root\"}}",
+      "[]" },
+    { "read_file", "Read a text file in the project. Returns numbered lines.",
+      "{\"path\":{\"type\":\"string\",\"description\":\"File relative to the project root\"},"
+      "\"start_line\":{\"type\":\"integer\",\"description\":\"First line to read (1-based, default 1)\"},"
+      "\"max_lines\":{\"type\":\"integer\",\"description\":\"Maximum lines to return (default 200)\"}}",
+      "[\"path\"]" },
+    { "grep", "Search the project's text files for a plain substring (case-sensitive). Returns file:line: text.",
+      "{\"pattern\":{\"type\":\"string\",\"description\":\"Text to find\"},"
+      "\"path\":{\"type\":\"string\",\"description\":\"Directory or file to search, relative to the project root (default: whole project)\"}}",
+      "[\"pattern\"]" },
+    { "open_tabs", "List the files open in the editor and whether each has unsaved changes.",
+      "{}", "[]" },
+};
+#define N_TOOL_SPECS ((int)(sizeof TOOL_SPECS / sizeof TOOL_SPECS[0]))
+
+char *ai_chat_tools_json(const char *provider) {
+    int anthropic = provider && strcmp(provider, "anthropic") == 0;
+    Buf b;
+    if (!buf_init(&b)) return NULL;
+    int ok = buf_putc(&b, '[');
+    for (int i = 0; ok && i < N_TOOL_SPECS; i++) {
+        const ToolSpec *t = &TOOL_SPECS[i];
+        if (i) ok = buf_putc(&b, ',');
+        if (anthropic) {
+            ok = ok && put_lit(&b, "{") && put_field(&b, "name", t->name) && buf_putc(&b, ',') &&
+                 put_field(&b, "description", t->desc) &&
+                 put_lit(&b, ",\"input_schema\":{\"type\":\"object\",\"properties\":") &&
+                 put_lit(&b, t->props) && put_lit(&b, ",\"required\":") &&
+                 put_lit(&b, t->required) && put_lit(&b, "}}");
+        } else {
+            ok = ok && put_lit(&b, "{\"type\":\"function\",\"function\":{") &&
+                 put_field(&b, "name", t->name) && buf_putc(&b, ',') &&
+                 put_field(&b, "description", t->desc) &&
+                 put_lit(&b, ",\"parameters\":{\"type\":\"object\",\"properties\":") &&
+                 put_lit(&b, t->props) && put_lit(&b, ",\"required\":") &&
+                 put_lit(&b, t->required) && put_lit(&b, "}}}");
+        }
+    }
+    ok = ok && buf_putc(&b, ']');
+    return finish_body(&b, ok);
+}
+
+int ai_chat_parse_calls(const char *provider, const char *body, AiToolCall *out, int max) {
+    int anthropic = provider && strcmp(provider, "anthropic") == 0;
+    int n = 0;
+    char path[96];
+    for (int i = 0; i < 64 && n < max; i++) {
+        char *id = NULL, *name = NULL, *args = NULL;
+        if (anthropic) {
+            snprintf(path, sizeof path, "content.%d.type", i);
+            char *type = ai_json_get_string(body, path);
+            if (!type) break;
+            int is_use = strcmp(type, "tool_use") == 0;
+            free(type);
+            if (!is_use) continue;
+            snprintf(path, sizeof path, "content.%d.id", i);
+            id = ai_json_get_string(body, path);
+            snprintf(path, sizeof path, "content.%d.name", i);
+            name = ai_json_get_string(body, path);
+            snprintf(path, sizeof path, "content.%d.input", i);
+            args = ai_json_get_raw(body, path);
+        } else {
+            snprintf(path, sizeof path, "choices.0.message.tool_calls.%d.id", i);
+            id = ai_json_get_string(body, path);
+            if (!id) break;
+            snprintf(path, sizeof path, "choices.0.message.tool_calls.%d.function.name", i);
+            name = ai_json_get_string(body, path);
+            snprintf(path, sizeof path, "choices.0.message.tool_calls.%d.function.arguments", i);
+            args = ai_json_get_string(body, path);
+        }
+        if (!id || !name) {
+            free(id);
+            free(name);
+            free(args);
+            continue;
+        }
+        if (!args) args = strdup("{}");
+        if (!args) {
+            free(id);
+            free(name);
+            break;
+        }
+        out[n].id = id;
+        out[n].name = name;
+        out[n].args = args;
+        n++;
+    }
+    return n;
+}
+
+void ai_chat_free_calls(AiToolCall *c, int n) {
+    for (int i = 0; i < n; i++) {
+        free(c[i].id);
+        free(c[i].name);
+        free(c[i].args);
+    }
+}
+
+int ai_chat_find_fence(const char *reply, int span[4]) {
+    if (!reply) return 0;
+    const char *p = reply;
+    /* Opening fence: a line starting with 3 or more backticks. */
+    for (;;) {
+        if (strncmp(p, "```", 3) == 0) break;
+        p = strchr(p, '\n');
+        if (!p) return 0;
+        p++;
+    }
+    int ticks = 0;
+    while (p[ticks] == '`') ticks++;
+    const char *nl = strchr(p, '\n');
+    if (!nl) return 0;
+    const char *body = nl + 1;
+    /* Closing fence: a line of at least `ticks` backticks and nothing else. */
+    const char *line = body;
+    for (;;) {
+        const char *e = strchr(line, '\n');
+        const char *le = e ? e : line + strlen(line);
+        int k = 0;
+        while (line + k < le && line[k] == '`') k++;
+        const char *r = line + k;
+        while (r < le && (*r == ' ' || *r == '\t' || *r == '\r')) r++;
+        if (k >= ticks && r == le) {
+            const char *end = line;   /* body ends before this line */
+            if (end > body) end--;    /* drop the newline before the fence */
+            if (end > body && end[-1] == '\r') end--;
+            if (line == body) end = body;
+            span[0] = (int)(p - reply);
+            span[1] = (int)(body - reply);
+            span[2] = (int)(end - reply);
+            span[3] = (int)((e ? e + 1 : le) - reply);
+            return 1;
+        }
+        if (!e) return 0;
+        line = e + 1;
+    }
+}
+
+char *ai_chat_extract_file(const char *reply) {
+    int span[4];
+    if (!ai_chat_find_fence(reply, span)) return NULL;
+    size_t n = (size_t)(span[2] - span[1]);
+    char *out = malloc(n + 1);
+    if (!out) return NULL;
+    memcpy(out, reply + span[1], n);
+    out[n] = '\0';
+    return out;
+}
+
+char *ai_build_chat_input(const char *message, const char *filename, const char *selection,
+                          const char *content, int truncated) {
+    Buf b;
+    if (!buf_init(&b)) return NULL;
+    int ok = put_lit(&b, message ? message : "") && put_lit(&b, "\n");
+    if (ok && filename && *filename) {
+        ok = put_lit(&b, "\nActive file: ") && put_lit(&b, filename) && put_lit(&b, "\n");
+    } else if (ok) {
+        ok = put_lit(&b, "\nActive file: (unsaved, no name)\n");
+    }
+    if (ok && truncated)
+        ok = put_lit(&b, "(The file is long: only the part below is shown. Do not reply with a whole-file replacement.)\n");
+    ok = ok && put_section(&b, "Selected text:", selection);
+    ok = ok && put_section(&b, "Current file contents:", content);
+    return finish_body(&b, ok);
 }

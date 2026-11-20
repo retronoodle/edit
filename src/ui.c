@@ -23,6 +23,7 @@
 #include "gitinfo.h"
 #include "ui.h"
 #include "aicomplete.h"
+#include "aichat.h"
 
 /* Separator between status parts: a thin box-drawing bar (UTF-8, one cell). */
 #define STATUS_SEP " \xe2\x94\x82 "
@@ -233,7 +234,7 @@ int gutter_w(void) {
 }
 
 int text_w(void) {
-    return screen_w - gutter_w();
+    return screen_w - gutter_w() - aichat_width();
 }
 
 /* Draws one screen row of a file line. scroll_x and column positions are in
@@ -469,6 +470,7 @@ void refresh_screen() {
     draw_menu_bar();
     draw_tab_bar();
     draw_editor_area();
+    aichat_draw();
     draw_dropdown();
     draw_status_line();
 
@@ -489,10 +491,12 @@ void refresh_screen() {
         screen_y = editor.cursor_y - editor.scroll_y + TEXT_TOP;
     }
     aicomplete_draw(screen_x, screen_y, gutter_w(), text_w());
+    /* With the AI chat focused, the cursor sits in its input box */
+    int chat_cursor = aichat_cursor(&screen_x, &screen_y);
     fb_gotoxy(screen_x, screen_y);
     /* After a wheel scroll the cursor can be off screen: keep the hardware cursor hidden */
-    int visible = editor.cursor_y >= editor.scroll_y &&
-                  screen_y >= TEXT_TOP && screen_y < TEXT_TOP + TEXT_ROWS;
+    int visible = chat_cursor || (editor.cursor_y >= editor.scroll_y &&
+                  screen_y >= TEXT_TOP && screen_y < TEXT_TOP + TEXT_ROWS);
     if (visible) fb_puts("\x1b[?25h");   // show cursor
 
     // One write for the whole frame
@@ -644,6 +648,7 @@ void show_help(void) {
     printf("  Alt+G           - Git panel (status, diff, commit, push, branch, merge; Enter = file diff, D = AI commit message)\n");
     printf("  Alt+Space       - AI autocomplete (also Ctrl+Space) (Tab accepts, any other key dismisses)\n");
     printf("  Alt+I           - Ask AI (instruction + selection, one undo step)\n");
+    printf("  Alt+J           - AI chat sidebar (can read project files; ^S applies a proposed edit)\n");
     printf("  Ctrl+Q          - Exit\n\n");
     printf("AI:\n");
     printf("  Set up once in Options > AI setup (provider, model, base URL, key).\n");

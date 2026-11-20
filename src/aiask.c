@@ -27,6 +27,7 @@
 #include "options.h"
 
 #define AI_MAX_TOKENS 4096
+#define AI_CHAT_MAX_TOKENS 8192
 #define AI_TIMEOUT_S  60
 #define AI_MAX_REPLY  (8 * 1024 * 1024)
 
@@ -136,37 +137,34 @@ static int run_curl(const char *cmd, char **buf, size_t *len, int *too_big) {
 #endif
 }
 
-int ai_ask(const char *system, const char *input, char **out, char *err, int errsize) {
+/* Sends body to the configured provider with curl. On HTTP 2xx returns the response body
+   (malloc'd, caller frees). On any failure returns NULL and fills err. */
+static char *post_json(const char *body, char *err, int errsize) {
     char cfg_path[512] = "", body_path[512] = "";
-    char *url = NULL, *body = NULL, *cfg = NULL, *buf = NULL;
+    char *url = NULL, *cfg = NULL, *buf = NULL, *result = NULL;
     char cmd[1600];
-    int rc = -1;
 
-    *out = NULL;
     set_err(err, errsize, "");
 
     const char *provider = options.ai_provider;
     int anthropic = strcmp(provider, "anthropic") == 0;
     if (!anthropic && strcmp(provider, "openai") != 0) {
         set_err(err, errsize, "AI is not set up (Options > AI)");
-        return -1;
+        return NULL;
     }
     if (!options.ai_model[0]) {
         set_err(err, errsize, "AI model is not set (Options > AI)");
-        return -1;
+        return NULL;
     }
     const char *key = options_ai_key();
     if (!key || !*key) {
         set_err(err, errsize, "No AI key set (Options > AI)");
-        return -1;
+        return NULL;
     }
 
     url = anthropic ? strdup(AI_ANTHROPIC_URL) : ai_openai_url(options.ai_base_url);
-    body = anthropic
-        ? ai_build_anthropic_body(options.ai_model, system, input, AI_MAX_TOKENS)
-        : ai_build_openai_body(options.ai_model, system, input, AI_MAX_TOKENS);
     cfg = url ? ai_curl_config(provider, url, key) : NULL;
-    if (!url || !body || !cfg) {
+    if (!url || !cfg) {
         set_err(err, errsize, "Out of memory");
         goto done;
     }
@@ -226,21 +224,48 @@ int ai_ask(const char *system, const char *input, char **out, char *err, int err
         set_err(err, errsize, tmp);
         goto done;
     }
-
-    {
-        char *reply = ai_parse_reply(provider, buf, err, errsize);
-        if (reply) {
-            *out = reply;
-            rc = 0;
-        }
-    }
+    result = buf;
+    buf = NULL;
 
 done:
     if (cfg_path[0]) remove(cfg_path);
     if (body_path[0]) remove(body_path);
     free(url);
-    free(body);
     free(cfg);
     free(buf);
-    return rc;
+    return result;
+}
+
+int ai_ask(const char *system, const char *input, char **out, char *err, int errsize) {
+    *out = NULL;
+    int anthropic = strcmp(options.ai_provider, "anthropic") == 0;
+    char *body = anthropic
+        ? ai_build_anthropic_body(options.ai_model, system, input, AI_MAX_TOKENS)
+        : ai_build_openai_body(options.ai_model, system, input, AI_MAX_TOKENS);
+    if (!body) {
+        set_err(err, errsize, "Out of memory");
+        return -1;
+    }
+    char *resp = post_json(body, err, errsize);
+    free(body);
+    if (!resp) return -1;
+    *out = ai_parse_reply(options.ai_provider, resp, err, errsize);
+    free(resp);
+    return *out ? 0 : -1;
+}
+
+int ai_ask_chat(const char *system, const char *const *msgs, int n, int use_tools,
+                char **raw, char *err, int errsize) {
+    *raw = NULL;
+    char *tools = use_tools ? ai_chat_tools_json(options.ai_provider) : NULL;
+    char *body = ai_build_chat_body(options.ai_provider, options.ai_model, system, msgs, n,
+                                    tools, AI_CHAT_MAX_TOKENS);
+    free(tools);
+    if (!body) {
+        set_err(err, errsize, "Out of memory");
+        return -1;
+    }
+    *raw = post_json(body, err, errsize);
+    free(body);
+    return *raw ? 0 : -1;
 }

@@ -279,6 +279,85 @@ int main(void) {
         free(c);
     }
 
+    /* Chat with tools */
+    {
+        char *g = ai_json_get_raw("{\"a\":{\"b\":[1,{\"c\":\"x\"}]}}", "a.b");
+        if (!g || strcmp(g, "[1,{\"c\":\"x\"}]") != 0) { printf("FAIL raw: %s\n", g ? g : "(null)"); failures++; }
+        free(g);
+        if (ai_json_get_raw("{\"a\":1}", "b") != NULL) { printf("FAIL raw missing\n"); failures++; }
+
+        const char *msgs[2];
+        char *u = ai_chat_user_msg("hi \"x\"");
+        if (!u || strcmp(u, "{\"role\":\"user\",\"content\":\"hi \\\"x\\\"\"}") != 0) { printf("FAIL user msg: %s\n", u ? u : "(null)"); failures++; }
+        msgs[0] = u;
+        char *body = ai_build_chat_body("anthropic", "m", "sys", msgs, 1, "[]", 10);
+        if (!body || strcmp(body, "{\"model\":\"m\",\"max_tokens\":10,\"system\":\"sys\",\"tools\":[],\"messages\":[{\"role\":\"user\",\"content\":\"hi \\\"x\\\"\"}]}") != 0) { printf("FAIL anth chat body: %s\n", body ? body : "(null)"); failures++; }
+        free(body);
+        body = ai_build_chat_body("openai", "m", "sys", msgs, 1, NULL, 10);
+        if (!body || strcmp(body, "{\"model\":\"m\",\"max_tokens\":10,\"messages\":[{\"role\":\"system\",\"content\":\"sys\"},{\"role\":\"user\",\"content\":\"hi \\\"x\\\"\"}]}") != 0) { printf("FAIL openai chat body: %s\n", body ? body : "(null)"); failures++; }
+        free(body);
+        free(u);
+
+        const char *anth = "{\"content\":[{\"type\":\"text\",\"text\":\"hm\"},{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":\"read_file\",\"input\":{\"path\":\"a.c\"}},{\"type\":\"tool_use\",\"id\":\"t2\",\"name\":\"open_tabs\",\"input\":{}}]}";
+        AiToolCall calls[4];
+        int n = ai_chat_parse_calls("anthropic", anth, calls, 4);
+        if (n != 2 || strcmp(calls[0].id, "t1") || strcmp(calls[0].name, "read_file") ||
+            strcmp(calls[0].args, "{\"path\":\"a.c\"}") || strcmp(calls[1].args, "{}")) { printf("FAIL anth calls n=%d\n", n); failures++; }
+        else ai_chat_free_calls(calls, n);
+        char *am = ai_chat_assistant_msg("anthropic", anth);
+        if (!am || strncmp(am, "{\"role\":\"assistant\",\"content\":[{\"type\":\"text\"", 40) != 0) { printf("FAIL anth asst: %s\n", am ? am : "(null)"); failures++; }
+        free(am);
+
+        const char *oai = "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":null,\"tool_calls\":[{\"id\":\"c1\",\"type\":\"function\",\"function\":{\"name\":\"grep\",\"arguments\":\"{\\\"pattern\\\":\\\"x\\\"}\"}}]}}]}";
+        n = ai_chat_parse_calls("openai", oai, calls, 4);
+        if (n != 1 || strcmp(calls[0].id, "c1") || strcmp(calls[0].name, "grep") ||
+            strcmp(calls[0].args, "{\"pattern\":\"x\"}")) { printf("FAIL oai calls n=%d\n", n); failures++; }
+        else ai_chat_free_calls(calls, n);
+        am = ai_chat_assistant_msg("openai", oai);
+        if (!am || strncmp(am, "{\"role\":\"assistant\"", 19) != 0) { printf("FAIL oai asst: %s\n", am ? am : "(null)"); failures++; }
+        free(am);
+        if (ai_chat_parse_calls("openai", "{\"choices\":[{\"message\":{\"content\":\"hi\"}}]}", calls, 4) != 0) { printf("FAIL no calls\n"); failures++; }
+
+        const char *ids[2] = { "a", "b" }, *txt[2] = { "r1", "r2" };
+        char *tr = ai_chat_tool_results_msg("anthropic", ids, txt, 2);
+        if (!tr || strcmp(tr, "{\"role\":\"user\",\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"a\",\"content\":\"r1\"},{\"type\":\"tool_result\",\"tool_use_id\":\"b\",\"content\":\"r2\"}]}") != 0) { printf("FAIL anth results: %s\n", tr ? tr : "(null)"); failures++; }
+        free(tr);
+        tr = ai_chat_tool_results_msg("openai", ids, txt, 2);
+        if (!tr || strcmp(tr, "{\"role\":\"tool\",\"tool_call_id\":\"a\",\"content\":\"r1\"},{\"role\":\"tool\",\"tool_call_id\":\"b\",\"content\":\"r2\"}") != 0) { printf("FAIL oai results: %s\n", tr ? tr : "(null)"); failures++; }
+        free(tr);
+
+        /* The tool definitions must be valid enough for the JSON walker. */
+        char *tj = ai_chat_tools_json("anthropic");
+        char *nm = ai_json_get_string(tj, "3.name");
+        if (!nm || strcmp(nm, "open_tabs") != 0) { printf("FAIL tools anth\n"); failures++; }
+        free(nm); free(tj);
+        tj = ai_chat_tools_json("openai");
+        nm = ai_json_get_string(tj, "1.function.name");
+        if (!nm || strcmp(nm, "read_file") != 0) { printf("FAIL tools oai\n"); failures++; }
+        free(nm); free(tj);
+
+        /* Fenced file extraction */
+        char *f = ai_chat_extract_file("Sure:\n```c\nint x;\n\nint y;\n```\nDone.");
+        if (!f || strcmp(f, "int x;\n\nint y;") != 0) { printf("FAIL extract: %s\n", f ? f : "(null)"); failures++; }
+        free(f);
+        f = ai_chat_extract_file("````md\n```c\ncode\n```\n````\n");
+        if (!f || strcmp(f, "```c\ncode\n```") != 0) { printf("FAIL extract nested: %s\n", f ? f : "(null)"); failures++; }
+        free(f);
+        f = ai_chat_extract_file("```\n```");
+        if (!f || *f) { printf("FAIL extract empty\n"); failures++; }
+        free(f);
+        {
+            const char *r = "pre\n```c\nA\n```\npost";
+            int sp[4];
+            if (!ai_chat_find_fence(r, sp) || sp[0] != 4 || strncmp(r + sp[1], "A", 1) || sp[2] - sp[1] != 1 || strcmp(r + sp[3], "post")) { printf("FAIL fence span\n"); failures++; }
+        }
+        if (ai_chat_extract_file("no fence here") || ai_chat_extract_file("```c\nunclosed")) { printf("FAIL extract none\n"); failures++; }
+
+        char *ci = ai_build_chat_input("fix it", "a.c", "sel", "body", 0);
+        if (!ci || strcmp(ci, "fix it\n\nActive file: a.c\n\nSelected text:\nsel\n\nCurrent file contents:\nbody\n") != 0) { printf("FAIL chat input: %s\n", ci ? ci : "(null)"); failures++; }
+        free(ci);
+    }
+
     if (failures == 0) printf("test_ai: all passed\n");
     return failures ? 1 : 0;
 }
