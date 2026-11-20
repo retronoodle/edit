@@ -13,3 +13,13 @@ test_clipcodec
 test_clipcodec.exe
 test_ai
 test_ai.exe
+test_aitools
+test_aitools.exe
+test_fuzzy
+test_fuzzy.exe
+test_diffcap
+test_diffcap.exe
+test_gitpush
+test_gitpush.exe
+test_msgedit
+test_msgedit.exe
