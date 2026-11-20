@@ -12,6 +12,9 @@
 #include "ui.h"
 #include "ai.h"
 #include "aiinstr.h"
+#include "linediff.h"
+#include "buffer.h"
+#include "undo.h"
 #include "aiask.h"
 #include "aichat.h"
 #include "aiedit.h"
@@ -737,12 +740,87 @@ static int proposal_valid(void) {
     return 1;
 }
 
+/* Replaces the whole buffer with `text` (the old way; also the fallback). One undo step. */
+static void apply_whole(const char *text) {
+    sel_select_all();
+    clip_paste_text(text, (int)strlen(text));
+    sel_clear();
+}
+
+/* Applies only the changed line hunks, bottom to top so earlier line numbers stay valid.
+   Returns the number of hunks applied, or -1 when it could not diff. One undo step. */
+static int apply_hunks(const char *cur, const char *text) {
+    LdHunk *h = NULL;
+    int n = 0;
+    if (linediff(cur, text, &h, &n) != 0) return -1;
+    undo_begin_group();
+    for (int k = n - 1; k >= 0; k--) {
+        const LdHunk *x = &h[k];
+        int os = x->old_start, oc = x->old_count, last = editor.line_count - 1;
+        const char *nt = text + x->new_off;
+        if (oc > 0 && x->new_count > 0) {
+            delete_range(os, 0, os + oc - 1, editor.lines[os + oc - 1].len);
+            editor.cursor_y = os; editor.cursor_x = 0;
+            insert_text(nt, x->new_len);
+        } else if (oc > 0) {
+            if (os + oc <= last) delete_range(os, 0, os + oc, 0);
+            else if (os > 0) delete_range(os - 1, editor.lines[os - 1].len, last, editor.lines[last].len);
+            else delete_range(0, 0, last, editor.lines[last].len);
+        } else if (os <= last) {
+            char *t = malloc(x->new_len + 2);
+            if (!t) continue;
+            memcpy(t, nt, x->new_len);
+            t[x->new_len] = '\n';
+            editor.cursor_y = os; editor.cursor_x = 0;
+            insert_text(t, x->new_len + 1);
+            free(t);
+        } else {
+            char *t = malloc(x->new_len + 2);
+            if (!t) continue;
+            t[0] = '\n';
+            memcpy(t + 1, nt, x->new_len);
+            editor.cursor_y = last; editor.cursor_x = editor.lines[last].len;
+            insert_text(t, x->new_len + 1);
+            free(t);
+        }
+    }
+    undo_end_group();
+    free(h);
+    return n;
+}
+
 static void apply_proposal(void) {
     if (!proposal_valid()) return;
     int cy = editor.cursor_y, cx = editor.cursor_x;
-    sel_select_all();
-    clip_paste_text(prop_text, (int)strlen(prop_text));   /* replaces everything as one undo step */
+    char *cur = doc_text();
+    int n = cur ? apply_hunks(cur, prop_text) : -1;
+    if (n == 0) {
+        free(cur);
+        drop_proposal();
+        add_entry(E_INFO, "", "No differences; nothing to apply.");
+        return;
+    }
+    /* Cursor line: lines above the cursor that grew or shrank shift it. */
+    if (n > 0) {
+        LdHunk *h = NULL;
+        int hn = 0;
+        if (linediff(cur, prop_text, &h, &hn) == 0) {
+            int shift = 0;
+            for (int k = 0; k < hn; k++)
+                if (h[k].old_start + h[k].old_count <= cy) shift += h[k].new_count - h[k].old_count;
+            cy += shift;
+            free(h);
+        }
+    }
+    free(cur);
+    char *now = doc_text();
+    if (n < 0 || !now || strcmp(now, prop_text) != 0) {   /* safety net: fall back to a whole replace */
+        if (n > 0) undo_undo();
+        apply_whole(prop_text);
+    }
+    free(now);
     sel_clear();
+    if (cy < 0) cy = 0;
     if (cy >= editor.line_count) cy = editor.line_count - 1;
     editor.cursor_y = cy;
     const Line *ln = &editor.lines[cy];

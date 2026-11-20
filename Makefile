@@ -3,8 +3,8 @@ CFLAGS=-Wall -Wextra -std=c99
 TARGET=velo
 SRC=src
 TESTDIR=tests
-SOURCES=$(SRC)/clipcodec.c $(SRC)/velo.c $(SRC)/term.c $(SRC)/buffer.c $(SRC)/ui.c $(SRC)/files.c $(SRC)/undo.c $(SRC)/clipboard.c $(SRC)/search.c $(SRC)/utf8.c $(SRC)/menu.c $(SRC)/options.c $(SRC)/recovery.c $(SRC)/mouse.c $(SRC)/tabs.c $(SRC)/recent.c $(SRC)/syntax.c $(SRC)/gitinfo.c $(SRC)/gitmodal.c $(SRC)/watch.c $(SRC)/aisetup.c $(SRC)/ai.c $(SRC)/aiask.c $(SRC)/aiedit.c $(SRC)/aiexplain.c $(SRC)/viewer.c $(SRC)/fuzzy.c $(SRC)/quickopen.c $(SRC)/diffcap.c $(SRC)/gitpush.c $(SRC)/msgedit.c $(SRC)/brace.c $(SRC)/aiasync.c $(SRC)/aicomplete.c $(SRC)/aitools.c $(SRC)/aichat.c $(SRC)/chatmd.c $(SRC)/aiinstr.c
-HEADERS=$(SRC)/clipcodec.h $(SRC)/editor.h $(SRC)/term.h $(SRC)/buffer.h $(SRC)/ui.h $(SRC)/files.h $(SRC)/undo.h $(SRC)/clipboard.h $(SRC)/search.h $(SRC)/utf8.h $(SRC)/menu.h $(SRC)/options.h $(SRC)/recovery.h $(SRC)/mouse.h $(SRC)/tabs.h $(SRC)/recent.h $(SRC)/syntax.h $(SRC)/gitinfo.h $(SRC)/gitmodal.h $(SRC)/watch.h $(SRC)/aisetup.h $(SRC)/ai.h $(SRC)/aiask.h $(SRC)/aiedit.h $(SRC)/aiexplain.h $(SRC)/viewer.h $(SRC)/fuzzy.h $(SRC)/quickopen.h $(SRC)/diffcap.h $(SRC)/gitpush.h $(SRC)/msgedit.h $(SRC)/brace.h $(SRC)/aiasync.h $(SRC)/aicomplete.h $(SRC)/aitools.h $(SRC)/aichat.h $(SRC)/chatmd.h $(SRC)/aiinstr.h
+SOURCES=$(SRC)/clipcodec.c $(SRC)/velo.c $(SRC)/term.c $(SRC)/buffer.c $(SRC)/ui.c $(SRC)/files.c $(SRC)/undo.c $(SRC)/clipboard.c $(SRC)/search.c $(SRC)/utf8.c $(SRC)/menu.c $(SRC)/options.c $(SRC)/recovery.c $(SRC)/mouse.c $(SRC)/tabs.c $(SRC)/recent.c $(SRC)/syntax.c $(SRC)/gitinfo.c $(SRC)/gitmodal.c $(SRC)/watch.c $(SRC)/aisetup.c $(SRC)/ai.c $(SRC)/aiask.c $(SRC)/aiedit.c $(SRC)/aiexplain.c $(SRC)/viewer.c $(SRC)/fuzzy.c $(SRC)/quickopen.c $(SRC)/diffcap.c $(SRC)/gitpush.c $(SRC)/msgedit.c $(SRC)/brace.c $(SRC)/aiasync.c $(SRC)/aicomplete.c $(SRC)/aitools.c $(SRC)/aichat.c $(SRC)/chatmd.c $(SRC)/aiinstr.c $(SRC)/linediff.c
+HEADERS=$(SRC)/clipcodec.h $(SRC)/editor.h $(SRC)/term.h $(SRC)/buffer.h $(SRC)/ui.h $(SRC)/files.h $(SRC)/undo.h $(SRC)/clipboard.h $(SRC)/search.h $(SRC)/utf8.h $(SRC)/menu.h $(SRC)/options.h $(SRC)/recovery.h $(SRC)/mouse.h $(SRC)/tabs.h $(SRC)/recent.h $(SRC)/syntax.h $(SRC)/gitinfo.h $(SRC)/gitmodal.h $(SRC)/watch.h $(SRC)/aisetup.h $(SRC)/ai.h $(SRC)/aiask.h $(SRC)/aiedit.h $(SRC)/aiexplain.h $(SRC)/viewer.h $(SRC)/fuzzy.h $(SRC)/quickopen.h $(SRC)/diffcap.h $(SRC)/gitpush.h $(SRC)/msgedit.h $(SRC)/brace.h $(SRC)/aiasync.h $(SRC)/aicomplete.h $(SRC)/aitools.h $(SRC)/aichat.h $(SRC)/chatmd.h $(SRC)/aiinstr.h $(SRC)/linediff.h
 TEST=test_utf8
 TEST_SYNTAX=test_syntax
 TEST_OPTIONS=test_options
@@ -18,6 +18,7 @@ TEST_BRACE=test_brace
 TEST_AITOOLS=test_aitools
 TEST_CHATMD=test_chatmd
 TEST_AIINSTR=test_aiinstr
+TEST_LINEDIFF=test_linediff
 
 $(TARGET): $(SOURCES) $(HEADERS)
 	$(CC) $(CFLAGS) -I$(SRC) -o $(TARGET) $(SOURCES)
@@ -61,7 +62,10 @@ $(TEST_CHATMD): $(TESTDIR)/test_chatmd.c $(SRC)/chatmd.c $(SRC)/chatmd.h $(SRC)/
 $(TEST_AIINSTR): $(TESTDIR)/test_aiinstr.c $(SRC)/aiinstr.c $(SRC)/aiinstr.h
 	$(CC) $(CFLAGS) -I$(SRC) -o $(TEST_AIINSTR) $(TESTDIR)/test_aiinstr.c $(SRC)/aiinstr.c
 
-test: $(TEST_AIINSTR) $(TEST_CHATMD) $(TEST_AITOOLS) $(TEST_BRACE) $(TEST) $(TEST_SYNTAX) $(TEST_OPTIONS) $(TEST_CLIPCODEC) $(TEST_AI) $(TEST_FUZZY) $(TEST_DIFFCAP) $(TEST_GITPUSH) $(TEST_MSGEDIT)
+$(TEST_LINEDIFF): $(TESTDIR)/test_linediff.c $(SRC)/linediff.c $(SRC)/linediff.h
+	$(CC) $(CFLAGS) -I$(SRC) -o $(TEST_LINEDIFF) $(TESTDIR)/test_linediff.c $(SRC)/linediff.c
+
+test: $(TEST_LINEDIFF) $(TEST_AIINSTR) $(TEST_CHATMD) $(TEST_AITOOLS) $(TEST_BRACE) $(TEST) $(TEST_SYNTAX) $(TEST_OPTIONS) $(TEST_CLIPCODEC) $(TEST_AI) $(TEST_FUZZY) $(TEST_DIFFCAP) $(TEST_GITPUSH) $(TEST_MSGEDIT)
 	./$(TEST)
 	./$(TEST_SYNTAX)
 	./$(TEST_OPTIONS)
@@ -75,6 +79,7 @@ test: $(TEST_AIINSTR) $(TEST_CHATMD) $(TEST_AITOOLS) $(TEST_BRACE) $(TEST) $(TES
 	./$(TEST_AITOOLS)
 	./$(TEST_CHATMD)
 	./$(TEST_AIINSTR)
+	./$(TEST_LINEDIFF)
 
 ifeq ($(OS),Windows_NT)
 EXE=.exe
@@ -85,6 +90,6 @@ RM=rm -f
 endif
 
 clean:
-	$(RM) $(TARGET)$(EXE) $(TEST)$(EXE) $(TEST_SYNTAX)$(EXE) $(TEST_OPTIONS)$(EXE) $(TEST_CLIPCODEC)$(EXE) $(TEST_AI)$(EXE) $(TEST_FUZZY)$(EXE) $(TEST_DIFFCAP)$(EXE) $(TEST_GITPUSH)$(EXE) $(TEST_MSGEDIT)$(EXE) $(TEST_BRACE)$(EXE) $(TEST_AITOOLS)$(EXE) $(TEST_CHATMD)$(EXE) $(TEST_AIINSTR)$(EXE)
+	$(RM) $(TARGET)$(EXE) $(TEST)$(EXE) $(TEST_SYNTAX)$(EXE) $(TEST_OPTIONS)$(EXE) $(TEST_CLIPCODEC)$(EXE) $(TEST_AI)$(EXE) $(TEST_FUZZY)$(EXE) $(TEST_DIFFCAP)$(EXE) $(TEST_GITPUSH)$(EXE) $(TEST_MSGEDIT)$(EXE) $(TEST_BRACE)$(EXE) $(TEST_AITOOLS)$(EXE) $(TEST_CHATMD)$(EXE) $(TEST_AIINSTR)$(EXE) $(TEST_LINEDIFF)$(EXE)
 
 .PHONY: clean test
