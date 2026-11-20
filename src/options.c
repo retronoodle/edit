@@ -20,13 +20,14 @@
 
 Options options = {4, 0, 0, 0, 1, 0, 1, "", "", "", ""};
 
-static const char *scheme_names[] = {"Default", "Blue", "Light"};
+static const char *scheme_names[] = {"Default", "Blue", "Light", "Slate"};
 
 /* Each starts with a reset so the scheme never leaks into other attributes. */
 static const char *scheme_sgr[] = {
     "\x1b[0m",          /* Default: terminal colors */
     "\x1b[0;37;44m",    /* Blue: white on blue */
     "\x1b[0;30;47m",    /* Light: black on white */
+    "\x1b[0;38;5;253;48;5;236m",  /* Slate: light grey on dark slate */
 };
 
 void options_cycle(int action) {
@@ -39,7 +40,7 @@ void options_cycle(int action) {
             options.crlf = !options.crlf;
             break;
         case ACT_COLOR_SCHEME:
-            options.scheme = (options.scheme + 1) % 3;
+            options.scheme = (options.scheme + 1) % 4;
             break;
         case ACT_LINE_NUMBERS:
             options.line_numbers = !options.line_numbers;
@@ -93,7 +94,7 @@ static int apply_option(const char *key, const char *val) {
         options.tab_width = n;
         utf8_set_tab_width(n);
     } else if (strcmp(key, "scheme") == 0) {
-        if (n < 0 || n > 2) return 0;
+        if (n < 0 || n > 3) return 0;
         options.scheme = n;
     } else if (strcmp(key, "line_numbers") == 0) {
         if (n != 0 && n != 1) return 0;
@@ -222,7 +223,7 @@ const char *options_base_sgr(void) {
 }
 
 /* Chrome colors, indexed [scheme][ChromeKind]; order matches the enum. */
-static const char *chrome_sgr[3][CH_COUNT] = {
+static const char *chrome_sgr[4][CH_COUNT] = {
     /* Default: terminal colors, reverse video for bars */
     {
         "\x1b[0;7m",        /* CH_BAR */
@@ -258,6 +259,18 @@ static const char *chrome_sgr[3][CH_COUNT] = {
         "\x1b[1;31m",       /* CH_WARN */
         "\x1b[0;90;47m",    /* CH_DIM */
         "\x1b[0;97;44m",    /* CH_DROP_SEL */
+    },
+    /* Slate: light grey on dark slate, blue accents */
+    {
+        "\x1b[0;38;5;253;48;5;238m",        /* CH_BAR */
+        "\x1b[0;1;38;5;255;48;5;24m",       /* CH_BAR_SEL */
+        "\x1b[0;38;5;250;48;5;235m",        /* CH_TAB_BAR */
+        "\x1b[0;1;38;5;255;48;5;24m",       /* CH_TAB_ACT */
+        "\x1b[0;38;5;253;48;5;238m",        /* CH_STATUS */
+        "\x1b[0;1;38;5;75;48;5;238m",       /* CH_BRANCH */
+        "\x1b[1;38;5;215m",                 /* CH_WARN */
+        "\x1b[0;38;5;245;48;5;236m",        /* CH_DIM */
+        "\x1b[0;38;5;253;48;5;24m",         /* CH_DROP_SEL */
     },
 };
 

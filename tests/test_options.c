@@ -63,9 +63,10 @@ static void test_invalid_values(void) {
     CHECK(options_parse_line("tab_width=4x") == 0, "trailing junk rejected");
 
     options.scheme = 1;
-    CHECK(options_parse_line("scheme=3") == 0, "scheme=3 rejected");
+    CHECK(options_parse_line("scheme=3") == 1 && options.scheme == 3, "scheme=3 (Slate) accepted");
+    CHECK(options_parse_line("scheme=4") == 0, "scheme=4 rejected");
     CHECK(options_parse_line("scheme=-1") == 0, "scheme=-1 rejected");
-    CHECK(options.scheme == 1, "scheme kept after bad values");
+    CHECK(options.scheme == 3, "scheme kept after bad values");
 
     options.wrap = 0;
     CHECK(options_parse_line("wrap=yes") == 0, "wrap=yes rejected");

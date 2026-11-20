@@ -332,13 +332,15 @@ static const char *kind_label(FileKind k) {
 
 /* Foreground-only colors per scheme (the row background comes from the scheme).
    Light has a white background and Blue a blue one, so their colors differ. */
-static const char *kind_sgr[3][FS_COUNT] = {
+static const char *kind_sgr[4][FS_COUNT] = {
     /* Default */
     { "\x1b[0m", "\x1b[1;31m", "\x1b[35m", "\x1b[32m", "\x1b[31m", "\x1b[36m", "\x1b[33m" },
     /* Blue */
     { "\x1b[0m", "\x1b[1;91m", "\x1b[95m", "\x1b[92m", "\x1b[91m", "\x1b[96m", "\x1b[93m" },
     /* Light */
     { "\x1b[0m", "\x1b[1;31m", "\x1b[38;5;90m", "\x1b[38;5;28m", "\x1b[31m", "\x1b[38;5;30m", "\x1b[38;5;130m" },
+    /* Slate */
+    { "\x1b[0m", "\x1b[1;38;5;203m", "\x1b[38;5;176m", "\x1b[38;5;114m", "\x1b[38;5;203m", "\x1b[38;5;80m", "\x1b[38;5;215m" },
 };
 
 /* Counts of each kind, written as "3 modified, 1 new". Empty when there are no changes. */

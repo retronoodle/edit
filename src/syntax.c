@@ -299,7 +299,7 @@ int syntax_scan_line(SynLang lang, int st, const char *t, int len, unsigned char
 
 /* Each entry sets its own background, so a token never inherits a wrong one.
    Order follows the TK_* enum. */
-static const char *palette[3][7] = {
+static const char *palette[4][7] = {
     /* Default: terminal colors */
     {"\x1b[0m", "\x1b[0;1;33m", "\x1b[0;32m", "\x1b[0;35m", "\x1b[0;36m", "\x1b[0;31m", "\x1b[0;1;33m"},
     /* Blue: white on blue */
@@ -308,10 +308,14 @@ static const char *palette[3][7] = {
     /* Light: black on white */
     {"\x1b[0;30;47m", "\x1b[0;1;34;47m", "\x1b[0;32;47m", "\x1b[0;35;47m", "\x1b[0;31;47m",
      "\x1b[0;1;35;47m", "\x1b[0;1;34;47m"},
+    /* Slate: VS Code-style colors on dark slate */
+    {"\x1b[0;38;5;253;48;5;236m", "\x1b[0;1;38;5;75;48;5;236m", "\x1b[0;38;5;71;48;5;236m",
+     "\x1b[0;38;5;216;48;5;236m", "\x1b[0;38;5;151;48;5;236m", "\x1b[0;38;5;176;48;5;236m",
+     "\x1b[0;1;38;5;75;48;5;236m"},
 };
 
 const char *syntax_sgr(int kind, int scheme) {
-    if (scheme < 0 || scheme > 2) scheme = 0;
+    if (scheme < 0 || scheme > 3) scheme = 0;
     if (kind < 0 || kind > TK_HEADING) kind = TK_PLAIN;
     return palette[scheme][kind];
 }

@@ -165,14 +165,15 @@ static void wrap_text(const char *text, int tw, Rows *out, SynLang lang, int dif
 
 /* Background tints for added and removed lines, per scheme. Light has a pale
    background, so its tints are pale too. */
-static const char *tint_sgr[3][2] = {
+static const char *tint_sgr[4][2] = {
     { "\x1b[48;5;22m", "\x1b[48;5;52m" },
     { "\x1b[48;5;22m", "\x1b[48;5;52m" },
     { "\x1b[48;5;194m", "\x1b[48;5;224m" },
+    { "\x1b[48;5;22m", "\x1b[48;5;52m" },
 };
 
 /* Foreground color for hunk headers, per scheme (added after the scheme's base SGR). */
-static const char *hunk_sgr[3] = { "\x1b[36m", "\x1b[96m", "\x1b[38;5;30m" };
+static const char *hunk_sgr[4] = { "\x1b[36m", "\x1b[96m", "\x1b[38;5;30m", "\x1b[38;5;75m" };
 
 /* Writes the SGR for a run of bytes: the token color (or the scheme's base), then
    the row's class on top of it (tint, header color, bold). */

@@ -5,7 +5,7 @@
 typedef struct {
     int tab_width;   /* spaces inserted by Tab: 2, 4 or 8 */
     int crlf;        /* 1 = save with CRLF line endings, 0 = LF */
-    int scheme;      /* index into the color schemes: 0 Default, 1 Blue, 2 Light */
+    int scheme;      /* index into the color schemes: 0 Default, 1 Blue, 2 Light, 3 Slate */
     int line_numbers; /* 1 = show line numbers in a left gutter, 0 = off */
     int syntax;       /* 1 = color keywords, comments and strings, 0 = plain text */
     int wrap;         /* 1 = soft-wrap long lines at the window edge, 0 = scroll sideways */

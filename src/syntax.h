@@ -49,7 +49,7 @@ const char *syntax_lang_name(SynLang lang);
    returned value is the state at its end. kinds[0..len-1] receives a TK_* per byte. */
 int syntax_scan_line(SynLang lang, int state_in, const char *text, int len, unsigned char *kinds);
 
-/* SGR sequence that colors a token kind for a color scheme (0 Default, 1 Blue, 2 Light). */
+/* SGR sequence that colors a token kind for a color scheme (0 Default, 1 Blue, 2 Light, 3 Slate). */
 const char *syntax_sgr(int kind, int scheme);
 
 #endif
