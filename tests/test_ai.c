@@ -266,6 +266,19 @@ int main(void) {
     check_input("y", NULL, NULL, NULL,
                 "Instruction: y\n\nNo text is selected; the reply is inserted at the cursor.\n");
 
+    /* Autocomplete */
+    {
+        char *c = ai_build_complete_input("int a", "}");
+        if (!c || strcmp(c, "Complete the code at the cursor.\n\nText before the cursor:\nint a\n\nText after the cursor:\n}\n") != 0) { printf("FAIL complete input: %s\n", c ? c : "(null)"); failures++; }
+        free(c);
+        c = ai_trim_completion("```c\na\nb\nc\nd\n```", 2);
+        if (!c || strcmp(c, "a\nb") != 0) { printf("FAIL trim lines: %s\n", c ? c : "(null)"); failures++; }
+        free(c);
+        c = ai_trim_completion("x = 1;  \n\n", 10);
+        if (!c || strcmp(c, "x = 1;") != 0) { printf("FAIL trim ws: %s\n", c ? c : "(null)"); failures++; }
+        free(c);
+    }
+
     if (failures == 0) printf("test_ai: all passed\n");
     return failures ? 1 : 0;
 }

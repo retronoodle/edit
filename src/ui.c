@@ -22,6 +22,7 @@
 #include "tabs.h"
 #include "gitinfo.h"
 #include "ui.h"
+#include "aicomplete.h"
 
 /* Separator between status parts: a thin box-drawing bar (UTF-8, one cell). */
 #define STATUS_SEP " \xe2\x94\x82 "
@@ -487,6 +488,7 @@ void refresh_screen() {
         screen_x = utf8_col(cur->text, cur->len, editor.cursor_x) - editor.scroll_x + gutter_w();
         screen_y = editor.cursor_y - editor.scroll_y + TEXT_TOP;
     }
+    aicomplete_draw(screen_x, screen_y, gutter_w(), text_w());
     fb_gotoxy(screen_x, screen_y);
     /* After a wheel scroll the cursor can be off screen: keep the hardware cursor hidden */
     int visible = editor.cursor_y >= editor.scroll_y &&
@@ -640,6 +642,7 @@ void show_help(void) {
     printf("  Ctrl+R          - Replace (Y/N/A=all, Esc=stop)\n");
     printf("  Ctrl+G          - Go to line\n");
     printf("  Alt+G           - Git panel (status, diff, commit, push, branch, merge; Enter = file diff, D = AI commit message)\n");
+    printf("  Alt+Space       - AI autocomplete (Tab accepts, any other key dismisses)\n");
     printf("  Alt+I           - Ask AI (instruction + selection, one undo step)\n");
     printf("  Ctrl+Q          - Exit\n\n");
     printf("AI:\n");

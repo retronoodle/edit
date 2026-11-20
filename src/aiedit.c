@@ -22,7 +22,7 @@ static const char AI_ASK_SYSTEM[] =
     "insert at the cursor.";
 
 /* Bytes from (y1,x1) to (y2,x2), lines joined by '\n'. Malloc'd, or NULL. */
-static char *span_text(int y1, int x1, int y2, int x2) {
+char *ai_span_text(int y1, int x1, int y2, int x2) {
     int total = 0;
     for (int y = y1; y <= y2; y++) {
         int from = (y == y1) ? x1 : 0;
@@ -45,7 +45,7 @@ static char *span_text(int y1, int x1, int y2, int x2) {
 
 /* Keeps at most CONTEXT_BYTES of s (the tail when tail is 1, else the head), cut on a
    UTF-8 character boundary. Frees s. Returns the new string, or NULL on failure. */
-static char *cap_context(char *s, int tail) {
+char *ai_cap_context(char *s, int tail) {
     if (!s) return NULL;
     int n = (int)strlen(s);
     if (n <= CONTEXT_BYTES) return s;
@@ -79,8 +79,8 @@ void ai_ask_selection(void) {
 
     int y0 = y1 - CONTEXT_LINES < 0 ? 0 : y1 - CONTEXT_LINES;
     int ye = y2 + CONTEXT_LINES >= editor.line_count ? editor.line_count - 1 : y2 + CONTEXT_LINES;
-    char *before = cap_context(span_text(y0, 0, y1, x1), 1);
-    char *after = cap_context(span_text(y2, x2, ye, editor.lines[ye].len), 0);
+    char *before = ai_cap_context(ai_span_text(y0, 0, y1, x1), 1);
+    char *after = ai_cap_context(ai_span_text(y2, x2, ye, editor.lines[ye].len), 0);
 
     char *input = ai_build_ask_input(instr, sel, before, after);
     free(sel);

@@ -27,6 +27,8 @@ Sources live in `src/` (paths below are relative to it). Unit tests live in `tes
 - `aiask.c/.h`: `ai_ask()`, the blocking AI request. Runs curl via `popen` with the config and body in 0600 temp files (key stays off the command line). Settings come from Options > AI
 - `aisetup.c/.h`: Options > AI setup (`ai_setup()`): prompts for provider, model, base URL and key. The key is shown masked / "set" / "from env" and never echoed
 - `aiedit.c/.h`: Ask AI (Alt+I, Edit menu): prompts for an instruction, sends the selection (or the text around the cursor), and puts the reply in place of the selection (or at the cursor) as one undo step. Strips code fences
+- `aiasync.c/.h`: non-blocking AI request for autocomplete (POSIX `fork` + curl to a pipe, `aiasync_start`/`aiasync_poll`/`aiasync_cancel`; Windows reports unsupported). Reuses `ai_write_temp` from aiask.c
+- `aicomplete.c/.h`: AI autocomplete (Alt+Space, Edit > Complete): requests in the background (the main loop polls every 100 ms while busy), shows the reply as dim ghost text drawn from `refresh_screen`, Tab accepts it via `clip_paste_text` (one undo step), any other key or click dismisses and cancels. Context comes from `ai_span_text`/`ai_cap_context` (aiedit.c)
 - `aiexplain.c/.h`: Explain (Edit menu): sends the selection and shows the reply in `view_text`
 - `viewer.c/.h`: `view_text()`, a read-only scrollable modal for long text (Esc/Enter/q closes, Up/Down scroll); `view_diff()` adds diff tints (add/del/hunk) and syntax colors for the code, per scheme
 - `gitinfo.c/.h`: cwd (home shortened to `~`) and git branch for the status line, read from `.git` files (no git process); cached, refreshed every 2 s

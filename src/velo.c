@@ -12,6 +12,7 @@
 #include "options.h"
 #include "aisetup.h"
 #include "aiedit.h"
+#include "aicomplete.h"
 #include "aiexplain.h"
 #include "files.h"
 #include "undo.h"
@@ -84,6 +85,7 @@ static int run_action(int action) {
         case ACT_AI_SETUP:   ai_setup(); break;
         case ACT_AI_ASK:     ai_ask_selection(); break;
         case ACT_AI_EXPLAIN: ai_explain_selection(); break;
+        case ACT_AI_COMPLETE: aicomplete_request(); break;
     }
     return 0;
 }
@@ -127,8 +129,9 @@ int main(int argc, char *argv[]) {
             needs_redraw = 0;
         }
 
-        int key = read_key_wait(IDLE_POLL_MS);
+        int key = read_key_wait(aicomplete_busy() ? 100 : IDLE_POLL_MS);
         if (key == -1) {        /* timed out (or EOF): check the file on disk, then loop so backups keep running */
+            if (aicomplete_tick()) needs_redraw = 1;
             if (watch_tick()) needs_redraw = 1;
             continue;
         }
@@ -139,6 +142,11 @@ int main(int argc, char *argv[]) {
             continue;
         }
         view_detached = 0;          /* a key brings the view back to the cursor */
+        if (key == KEY_TAB && aicomplete_accept()) {   /* Tab takes a shown AI suggestion */
+            needs_redraw = 1;
+            continue;
+        }
+        if (key != KEY_RESIZE) aicomplete_dismiss();   /* any other input drops it */
         if (key == KEY_PASTE) {     /* text pasted by the terminal (Ctrl+Shift+V): insert it as typed text */
             int len = 0;
             char *text = term_take_paste(&len);
@@ -177,6 +185,7 @@ int main(int argc, char *argv[]) {
         switch (key) {
             case KEY_ALT_G: git_modal(); break;
             case KEY_ALT_I: run_action(ACT_AI_ASK); break;
+            case KEY_ALT_SPACE: run_action(ACT_AI_COMPLETE); break;
             case KEY_SHIFT_UP: sel_extend(); move_cursor(0, -1); break;
             case KEY_SHIFT_DOWN: sel_extend(); move_cursor(0, 1); break;
             case KEY_SHIFT_LEFT: sel_extend(); move_cursor(-1, 0); break;

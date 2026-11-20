@@ -510,6 +510,7 @@ int read_key_wait(int ms) {
     if (alt && (ch == 'o' || ch == 'O')) return KEY_ALT_O;
     if (alt && (ch == 'g' || ch == 'G')) return KEY_ALT_G;
     if (alt && (ch == 'i' || ch == 'I')) return KEY_ALT_I;
+    if (alt && ch == ' ') return KEY_ALT_SPACE;
 
     switch (ch) {
         case 27:  return KEY_ESC;
@@ -782,6 +783,7 @@ static int read_key_any(void) {
             case 'G': return KEY_ALT_G;
             case 'i':
             case 'I': return KEY_ALT_I;
+            case ' ': return KEY_ALT_SPACE;
             default: return KEY_ESC; // Treat as ESC if not recognized
         }
     }

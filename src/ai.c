@@ -541,3 +541,27 @@ char *ai_build_ask_input(const char *instruction, const char *selection,
     ok = ok && put_section(&b, "Text after:", after);
     return finish_body(&b, ok);
 }
+
+/* Autocomplete helpers */
+
+char *ai_build_complete_input(const char *before, const char *after) {
+    Buf b;
+    if (!buf_init(&b)) return NULL;
+    int ok = put_lit(&b, "Complete the code at the cursor.\n") &&
+             put_section(&b, "Text before the cursor:", before) &&
+             put_section(&b, "Text after the cursor:", after);
+    return finish_body(&b, ok);
+}
+
+char *ai_trim_completion(const char *reply, int max_lines) {
+    char *s = ai_strip_fences(reply);
+    if (!s) return NULL;
+    int n = (int)strlen(s);
+    int lines = 1;
+    for (int i = 0; i < n; i++) {
+        if (s[i] == '\n' && ++lines > max_lines) { n = i; break; }
+    }
+    while (n > 0 && (s[n - 1] == '\n' || s[n - 1] == '\r' || s[n - 1] == ' ' || s[n - 1] == '\t')) n--;
+    s[n] = '\0';
+    return s;
+}

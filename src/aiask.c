@@ -68,7 +68,7 @@ static FILE *open_temp(char *path, size_t n) {
 }
 
 /* Writes data to a new temp file and sets path. Returns 1 on success. */
-static int write_temp(char *path, size_t n, const char *data) {
+int ai_write_temp(char *path, size_t n, const char *data) {
     FILE *f = open_temp(path, n);
     if (!f) return 0;
     size_t len = strlen(data);
@@ -173,8 +173,8 @@ int ai_ask(const char *system, const char *input, char **out, char *err, int err
 
     /* The config holds the key and the body holds the user's text: both go in
        0600 temp files, removed at done. */
-    if (!write_temp(cfg_path, sizeof cfg_path, cfg) ||
-        !write_temp(body_path, sizeof body_path, body)) {
+    if (!ai_write_temp(cfg_path, sizeof cfg_path, cfg) ||
+        !ai_write_temp(body_path, sizeof body_path, body)) {
         set_err(err, errsize, "Could not write a temp file for the AI request");
         goto done;
     }

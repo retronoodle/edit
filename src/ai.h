@@ -68,4 +68,15 @@ char *ai_strip_fences(const char *s);
 char *ai_build_ask_input(const char *instruction, const char *selection,
                          const char *before, const char *after);
 
+/* Autocomplete helpers (pure). */
+
+/* User message for inline completion: the text before and after the cursor. Returns
+   malloc'd text (free it), or NULL on allocation failure. */
+char *ai_build_complete_input(const char *before, const char *after);
+
+/* Cleans a completion reply: strips a wrapping code fence, keeps at most max_lines
+   lines and drops trailing blank space. Returns malloc'd text (free it), or NULL on
+   allocation failure. */
+char *ai_trim_completion(const char *reply, int max_lines);
+
 #endif
