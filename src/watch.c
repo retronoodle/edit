@@ -3,6 +3,9 @@
    Only named tabs are checked. The recorded state lives in Editor, so it moves
    with the tab. */
 #define _POSIX_C_SOURCE 200809L   /* st_mtim (nanosecond mtime) under -std=c99 */
+#ifdef __APPLE__
+    #define _DARWIN_C_SOURCE      /* st_mtimespec is hidden by _POSIX_C_SOURCE on macOS */
+#endif
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>

@@ -1,6 +1,9 @@
 /* Terminal layer: frame buffer, console/raw mode and key input. */
 #ifndef _WIN32
     #define _POSIX_C_SOURCE 200809L   /* sigaction, SIGWINCH under -std=c99 */
+    #ifdef __APPLE__
+        #define _DARWIN_C_SOURCE      /* SIGWINCH is hidden by _POSIX_C_SOURCE on macOS */
+    #endif
 #endif
 
 #include <stdio.h>
