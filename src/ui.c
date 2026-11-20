@@ -642,7 +642,7 @@ void show_help(void) {
     printf("  Ctrl+R          - Replace (Y/N/A=all, Esc=stop)\n");
     printf("  Ctrl+G          - Go to line\n");
     printf("  Alt+G           - Git panel (status, diff, commit, push, branch, merge; Enter = file diff, D = AI commit message)\n");
-    printf("  Alt+Space       - AI autocomplete (Tab accepts, any other key dismisses)\n");
+    printf("  Alt+Space       - AI autocomplete (also Ctrl+Space) (Tab accepts, any other key dismisses)\n");
     printf("  Alt+I           - Ask AI (instruction + selection, one undo step)\n");
     printf("  Ctrl+Q          - Exit\n\n");
     printf("AI:\n");

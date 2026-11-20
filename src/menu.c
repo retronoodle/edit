@@ -30,7 +30,7 @@ static const MenuItem edit_items[] = {
     {"Select All", "Ctrl+A", 'A', ACT_SELECT_ALL, 0, 0},
     {"Ask AI...",  "Alt+I",  'I', ACT_AI_ASK,     0, 0},
     {"Explain...", "",       'E', ACT_AI_EXPLAIN, 0, 0},
-    {"Complete",   "Alt+Space", 'M', ACT_AI_COMPLETE, 0, 0},
+    {"Complete",   "Alt/Ctrl+Space", 'M', ACT_AI_COMPLETE, 0, 0},
 };
 
 static const MenuItem search_items[] = {

@@ -453,6 +453,7 @@ int getch_cp() {
         }
         int cp;
         if (utf8_decode(buf, need + 1, &cp) != need + 1) return -1;
+        if (cp == 0xA0) return KEY_ALT_SPACE;   // macOS Option+Space without Option-as-Alt
         return cp;
     }
 }
@@ -645,6 +646,7 @@ static int read_key_any(void) {
     int ch = getch_impl(); // getchar() in POSIX branch
     if (ch == EOF) return -1;
 
+    if (ch == 0) return KEY_ALT_SPACE;              // Ctrl+Space sends NUL: AI autocomplete too
     if (ch == 127 || ch == 8) return KEY_BACKSPACE; // DEL or BS
     if (ch == 9) return KEY_TAB;
     if (ch == 13 || ch == 10) return KEY_ENTER;
