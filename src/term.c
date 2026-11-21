@@ -231,7 +231,16 @@ static int next_key_event(int *vk, int *ch, DWORD *ctrl, DWORD timeout_ms) {
             *ctrl = 0;
             return 0;
         }
-        if (rec.EventType != KEY_EVENT || !rec.Event.KeyEvent.bKeyDown) continue;
+        if (rec.EventType != KEY_EVENT) continue;
+        /* cmd.exe swallows the key-down of Ctrl+S (flow control) and sends only the key-up: take that one */
+        static int ctrl_s_down = 0;
+        int is_ctrl_s = rec.Event.KeyEvent.uChar.UnicodeChar == 19;
+        if (rec.Event.KeyEvent.bKeyDown) {
+            if (is_ctrl_s) ctrl_s_down = 1;
+        } else {
+            if (!is_ctrl_s) continue;
+            if (ctrl_s_down) { ctrl_s_down = 0; continue; }
+        }
 
         int u = rec.Event.KeyEvent.uChar.UnicodeChar;
         if (u >= 0xD800 && u <= 0xDBFF) {          /* high surrogate: wait for low */

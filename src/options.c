@@ -156,6 +156,10 @@ void options_load(void) {
 
 const char *options_ai_key(void) {
     const char *env = NULL;
+    /* A custom base URL is not api.openai.com: an env key meant for OpenAI must not go there,
+       so a stored key wins (the env var is still the fallback when none is stored). */
+    if (strcmp(options.ai_provider, "openai") == 0 && options.ai_base_url[0] && options.ai_key[0])
+        return options.ai_key;
     if (strcmp(options.ai_provider, "anthropic") == 0) env = getenv("ANTHROPIC_API_KEY");
     else if (strcmp(options.ai_provider, "openai") == 0) env = getenv("OPENAI_API_KEY");
     if (env && *env) return env;

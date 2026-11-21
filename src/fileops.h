@@ -1,5 +1,4 @@
-/* File operations for the sidebar: new file, new folder, copy. POSIX only (on Windows every
-   call answers with an error). Each returns NULL on success or a short error message.
+/* File operations for the sidebar: new file, new folder, copy. Each returns NULL on success or a short error message.
    Nothing here overwrites an existing file. */
 #ifndef FILEOPS_H
 #define FILEOPS_H

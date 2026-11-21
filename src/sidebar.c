@@ -19,7 +19,10 @@
 #include "ui.h"
 #include "utf8.h"
 
-#ifndef _WIN32
+#ifdef _WIN32
+    #include <direct.h>
+    #include <windows.h>
+#else
     #include <dirent.h>
     #include <sys/stat.h>
     #include <unistd.h>
@@ -51,7 +54,15 @@ static unsigned long click_ms = 0;
 /* ---- Disk access ---- */
 
 void sidebar_set_root(void) {
-#ifndef _WIN32
+#ifdef _WIN32
+    char cwd[PATH_LEN];
+    if (_getcwd(cwd, sizeof cwd) && _fullpath(root, cwd, sizeof root)) {
+        for (char *p = root; *p; p++) if (*p == '\\') *p = '/';
+        size_t n = strlen(root);
+        if (n > 3 && root[n - 1] == '/') root[n - 1] = '\0';   /* keep "C:/" intact */
+        return;
+    }
+#else
     char cwd[PATH_LEN];
     if (getcwd(cwd, sizeof cwd) && realpath(cwd, root)) return;
 #endif
@@ -73,12 +84,33 @@ static int list_dir(const char *rel, FtEntry **out, int *n, void *ctx) {
     (void)ctx;
     *out = NULL;
     *n = 0;
-#ifdef _WIN32
-    (void)rel;
-    return -1;
-#else
     char path[PATH_LEN];
     full_path(path, sizeof path, rel);
+#ifdef _WIN32
+    char pattern[PATH_LEN];
+    if (snprintf(pattern, sizeof pattern, "%s/*", path) >= (int)sizeof pattern) return -1;
+    WIN32_FIND_DATAA fd;
+    HANDLE h = FindFirstFileA(pattern, &fd);
+    if (h == INVALID_HANDLE_VALUE) return -1;
+    int cap = 0;
+    do {
+        const char *nm = fd.cFileName;
+        if (!strcmp(nm, ".") || !strcmp(nm, "..") || strlen(nm) >= sizeof((*out)->name)) continue;
+        if (hide_noise && is_noise(nm)) continue;
+        if (*n >= FT_MAX_CHILDREN) break;
+        if (*n == cap) {
+            cap = cap ? cap * 2 : 32;
+            FtEntry *g = realloc(*out, (size_t)cap * sizeof **out);
+            if (!g) break;
+            *out = g;
+        }
+        FtEntry *en = &(*out)[(*n)++];
+        strcpy(en->name, nm);
+        en->is_dir = (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+    } while (FindNextFileA(h, &fd));
+    FindClose(h);
+    return 0;
+#else
     DIR *d = opendir(path);
     if (!d) return -1;
     int cap = 0;
@@ -116,7 +148,6 @@ static void ensure_tree(void) {
 /* Re-reads the disk and keeps the selected row when it is still there. */
 static void refresh_tree(void);
 
-#ifndef _WIN32
 /* Cheap fingerprint of the folders on screen: the root and every expanded folder's mtime.
    A file created or removed in one of them changes it. */
 static unsigned long long dirs_stamp(void) {
@@ -125,18 +156,23 @@ static unsigned long long dirs_stamp(void) {
         if (i >= 0 && !(tree.rows[i].is_dir && tree.rows[i].expanded)) continue;
         char path[PATH_LEN];
         full_path(path, sizeof path, i < 0 ? "" : tree.rows[i].rel);
+#ifdef _WIN32
+        WIN32_FILE_ATTRIBUTE_DATA fa;
+        if (!GetFileAttributesExA(path, GetFileExInfoStandard, &fa)) continue;
+        sum = sum * 31 + (((unsigned long long)fa.ftLastWriteTime.dwHighDateTime << 32) |
+                          fa.ftLastWriteTime.dwLowDateTime);
+#else
         struct stat st;
         if (stat(path, &st) != 0) continue;
         sum = sum * 31 + (unsigned long long)st.st_mtim.tv_sec * 1000000007ULL +
               (unsigned long long)st.st_mtim.tv_nsec;
+#endif
     }
     return sum;
 }
-#endif
 
 /* Picks up files created or deleted outside the tree (saves, chat writes, other programs). */
 static void auto_refresh(void) {
-#ifndef _WIN32
     static unsigned long last_ms = 0;
     static unsigned long long stamp = 0;
     unsigned long now = term_ticks_ms();
@@ -147,7 +183,6 @@ static void auto_refresh(void) {
         if (stamp) refresh_tree();
         stamp = dirs_stamp();   /* re-read: the refresh may have changed the expanded set */
     }
-#endif
 }
 
 static void refresh_tree(void) {
@@ -159,19 +194,36 @@ static void refresh_tree(void) {
     sel = i >= 0 ? i : (sel < tree.n ? sel : 0);
 }
 
+/* Length of `root` plus its separator when `path` lies under it, else 0. A root that already
+   ends in '/' (a drive root like "C:/" or "/") needs no extra separator. */
+static size_t under_root(const char *path, int icase) {
+    size_t n = strlen(root);
+    if (!n) return 0;
+#ifdef _WIN32
+    if (icase ? _strnicmp(path, root, n) : strncmp(path, root, n)) return 0;
+#else
+    (void)icase;
+    if (strncmp(path, root, n) != 0) return 0;
+#endif
+    if (root[n - 1] == '/') return path[n] ? n : 0;
+    return path[n] == '/' && path[n + 1] ? n + 1 : 0;
+}
+
 /* Path of the active document relative to the root ("" if it is not under the root). */
 static const char *active_rel(char *buf, size_t size) {
-#ifndef _WIN32
     char abs[PATH_LEN];
-    if (!editor.filename[0] || !root[0] || !realpath(editor.filename, abs)) return "";
-    size_t n = strlen(root);
-    if (strncmp(abs, root, n) != 0 || abs[n] != '/') return "";
-    snprintf(buf, size, "%s", abs + n + 1);
-    return buf;
+#ifdef _WIN32
+    if (!editor.filename[0] || !root[0] || !_fullpath(abs, editor.filename, sizeof abs)) return "";
+    for (char *p = abs; *p; p++) if (*p == '\\') *p = '/';
+    size_t n = under_root(abs, 1);
+    if (!n) return "";
 #else
-    (void)buf; (void)size;
-    return "";
+    if (!editor.filename[0] || !root[0] || !realpath(editor.filename, abs)) return "";
+    size_t n = under_root(abs, 0);
+    if (!n) return "";
 #endif
+    snprintf(buf, size, "%s", abs + n);
+    return buf;
 }
 
 /* ---- Selection and scrolling ---- */
@@ -237,10 +289,6 @@ static void reveal_active(void) {
 }
 
 void sidebar_toggle(void) {
-#ifdef _WIN32
-    show_message("The file tree is not available on Windows.");
-    return;
-#else
     if (!is_open) {
         is_open = 1;
         if (sidebar_width() == 0) {
@@ -261,7 +309,6 @@ void sidebar_toggle(void) {
         has_focus = 0;
         popup = 0;
     }
-#endif
 }
 
 /* ---- Actions ---- */
@@ -304,9 +351,9 @@ static void open_row(int i) {
 
 /* Selects `path` (absolute) after a refresh, opening the folders above it. */
 static void select_path(const char *path) {
-    size_t n = strlen(root);
-    if (strncmp(path, root, n) != 0 || path[n] != '/') return;
-    int i = ft_reveal(&tree, path + n + 1);
+    size_t n = under_root(path, 0);
+    if (!n) return;
+    int i = ft_reveal(&tree, path + n);
     if (i >= 0) select_row(i);
 }
 

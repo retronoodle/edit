@@ -1,0 +1,147 @@
+/* Working directory and git branch for the status line. Reads the .git files
+   directly, so no git process is started. */
+#include <ctype.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+#ifdef _WIN32
+    #include <direct.h>
+#else
+    #include <unistd.h>
+#endif
+
+#include "gitinfo.h"
+
+#define REFRESH_SECS 2
+#define MAX_WALK 64
+#define PATH_MAX_LEN 1024
+
+static GitInfo info;
+static char info_cwd[PATH_MAX_LEN];
+static time_t info_at;
+static int info_valid;
+
+static void current_dir(char *buf, size_t size) {
+#ifdef _WIN32
+    if (!_getcwd(buf, (int)size)) buf[0] = '\0';
+#else
+    if (!getcwd(buf, size)) buf[0] = '\0';
+#endif
+}
+
+/* Reads a small file into out, trailing newlines and spaces removed. */
+static int read_small_file(const char *path, char *out, size_t size) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return 0;
+    size_t n = fread(out, 1, size - 1, f);
+    fclose(f);
+    out[n] = '\0';
+    while (n > 0 && (out[n - 1] == '\n' || out[n - 1] == '\r' || out[n - 1] == ' ')) {
+        out[--n] = '\0';
+    }
+    return 1;
+}
+
+/* Finds the git directory of dir: either .git/ itself, or a .git file
+   ("gitdir: <path>", used by worktrees and submodules). */
+static int find_git_dir(const char *dir, char *gitdir, size_t size) {
+    char dot_git[PATH_MAX_LEN + 8];
+    snprintf(dot_git, sizeof dot_git, "%s/.git", dir);
+
+    char head[PATH_MAX_LEN + 16];
+    snprintf(head, sizeof head, "%s/HEAD", dot_git);
+    FILE *f = fopen(head, "rb");
+    if (f) {
+        fclose(f);
+        snprintf(gitdir, size, "%s", dot_git);
+        return 1;
+    }
+
+    char line[PATH_MAX_LEN];
+    if (!read_small_file(dot_git, line, sizeof line)) return 0;
+    if (strncmp(line, "gitdir: ", 8) != 0) return 0;
+
+    const char *target = line + 8;
+    int absolute = target[0] == '/' || target[0] == '\\' || (target[0] && target[1] == ':');
+    if (absolute) snprintf(gitdir, size, "%s", target);
+    else snprintf(gitdir, size, "%s/%s", dir, target);
+    return 1;
+}
+
+/* "ref: refs/heads/main" gives "main"; a detached HEAD gives a short hash. */
+static void 
+_from_head(const char *head, char *out, size_t size) {
+    const char *prefix = "ref: refs/heads/";
+    size_t plen = strlen(prefix);
+    if (strncmp(head, prefix, plen) == 0) {
+        snprintf(out, size, "%s", head + plen);
+    } else if (strncmp(head, "ref: ", 5) == 0) {
+        snprintf(out, size, "%s", head + 5);
+    } else {
+        snprintf(out, size, "%.7s", head);
+    }
+}
+
+/* Walks up from info_cwd to the nearest repo and fills info.branch. */
+static void find_branch(void) {
+    info.branch[0] = '\0';
+
+    char dir[PATH_MAX_LEN];
+    snprintf(dir, sizeof dir, "%s", info_cwd);
+
+    for (int i = 0; i < MAX_WALK; i++) {
+        char gitdir[PATH_MAX_LEN + 8];
+        if (find_git_dir(dir, gitdir, sizeof gitdir)) {
+            char head_path[PATH_MAX_LEN + 16];
+            char head[256];
+            snprintf(head_path, sizeof head_path, "%s/HEAD", gitdir);
+            if (read_small_file(head_path, head, sizeof head)) {
+                branch_from_head(head, info.branch, sizeof info.branch);
+            }
+            return;
+        }
+
+        char *slash = strrchr(dir, '/');
+        char *bslash = strrchr(dir, '\\');
+        if (bslash && (!slash || bslash > slash)) slash = bslash;
+        if (!slash || slash == dir) return;
+        *slash = '\0';
+    }
+}
+
+/* Copies cwd into out, with the home folder replaced by ~ (case-insensitive). */
+static void shorten_home(const char *cwd, char *out, size_t size) {
+    const char *home = getenv("USERPROFILE");
+    if (!home) home = getenv("HOME");
+    size_t hl = home ? strlen(home) : 0;
+
+    int match = hl > 0 && strlen(cwd) >= hl;
+    for (size_t i = 0; match && i < hl; i++) {
+        char a = cwd[i], b = home[i];
+        if (a == '\\') a = '/';
+        if (b == '\\') b = '/';
+        if (tolower((unsigned char)a) != tolower((unsigned char)b)) match = 0;
+    }
+    if (match && (cwd[hl] == '\0' || cwd[hl] == '/' || cwd[hl] == '\\')) {
+        snprintf(out, size, "~%s", cwd + hl);
+    } else {
+        snprintf(out, size, "%s", cwd);
+    }
+}
+
+const GitInfo *gitinfo_get(void) {
+    char cwd[PATH_MAX_LEN];
+    current_dir(cwd, sizeof cwd);
+
+    time_t now = time(NULL);
+    if (!info_valid || strcmp(cwd, info_cwd) != 0 || now - info_at >= REFRESH_SECS) {
+        snprintf(info_cwd, sizeof info_cwd, "%s", cwd);
+        info_at = now;
+        info_valid = 1;
+        find_branch();
+        shorten_home(info_cwd, info.dir, sizeof info.dir);
+    }
+    return &info;
+}
