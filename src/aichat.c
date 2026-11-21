@@ -742,6 +742,7 @@ static void send_text(char *msg, const char *label) {
     char *reply = NULL;
     int ok = 0;
     int use_tools = plan_mode ? 2 : 1;   /* 2: read-only tools */
+    int nudges = 0;
 #ifdef _WIN32
     use_tools = 0;
 #endif
@@ -796,6 +797,16 @@ static void send_text(char *msg, const char *label) {
         if (nc == 0) {
             char perr[256];
             reply = ai_parse_reply(options.ai_provider, raw, perr, sizeof perr);
+            if (!reply && strcmp(perr, "The AI returned no text") == 0 && nudges < 2 &&
+                nwork + 1 <= cap_work && (work[nwork] = ai_chat_user_msg(
+                    "Your last reply was empty. Continue: carry out the task now, using the tools "
+                    "if needed, and finish with a text answer."))) {
+                /* Some models end a turn with nothing after tool results: ask again. */
+                nwork++;
+                nudges++;
+                free(raw);
+                continue;
+            }
             free(raw);
             if (!reply) {
                 add_entry(E_ERR, "! ", perr);
